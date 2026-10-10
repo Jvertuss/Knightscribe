@@ -1,9 +1,11 @@
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Literal
 
-from document_processing import extract_document
 from database import get_connection
+from document_processing import extract_document
+from retrieval import search_course_context
 
 
 app = FastAPI(
@@ -76,6 +78,21 @@ class CourseDocumentCreate(BaseModel):
     original_filename: str | None = None
     file_url: str | None = None
     chunks: list[ReferenceChunkCreate]
+
+
+class AIContextRequest(BaseModel):
+    message: str
+
+    mode: Literal[
+        "explain",
+        "hint",
+        "answer"
+    ] = "explain"
+
+    lecture_id: str | None = None
+
+    max_sources: int = 6
+
 
 @app.get("/")
 def home():
@@ -1256,3 +1273,142 @@ async def upload_course_document(
     created_document["chunks"] = saved_chunks
 
     return created_document
+
+@app.post("/courses/{course_id}/ai-context")
+def get_ai_context(
+    course_id: int,
+    request: AIContextRequest,
+):
+    """
+    Retrieve professor-approved context for the AI tutor.
+
+    This endpoint does not use the internet and does not
+    generate the final AI response itself.
+    """
+
+    if not request.message.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Message cannot be empty"
+        )
+
+    if request.max_sources < 1 or request.max_sources > 10:
+        raise HTTPException(
+            status_code=400,
+            detail="max_sources must be between 1 and 10"
+        )
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    c.id,
+
+                    COALESCE(
+                        cs.ai_enabled,
+                        FALSE
+                    ) AS ai_enabled,
+
+                    COALESCE(
+                        cs.explanations_allowed,
+                        FALSE
+                    ) AS explanations_allowed,
+
+                    COALESCE(
+                        cs.hints_allowed,
+                        FALSE
+                    ) AS hints_allowed,
+
+                    COALESCE(
+                        cs.final_answers_allowed,
+                        FALSE
+                    ) AS final_answers_allowed
+
+                FROM courses AS c
+
+                LEFT JOIN course_settings AS cs
+                    ON cs.course_id = c.id
+
+                WHERE c.id = %s
+                """,
+                (course_id,),
+            )
+
+            course = cursor.fetchone()
+
+            if course is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Course not found"
+                )
+
+            if not course["ai_enabled"]:
+                raise HTTPException(
+                    status_code=403,
+                    detail="AI tutor is disabled for this course"
+                )
+
+            if (
+                request.mode == "explain"
+                and not course["explanations_allowed"]
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="AI explanations are disabled for this course"
+                )
+
+            if (
+                request.mode == "hint"
+                and not course["hints_allowed"]
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="AI hints are disabled for this course"
+                )
+
+            if (
+                request.mode == "answer"
+                and not course["final_answers_allowed"]
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Final AI answers are disabled for this course"
+                )
+
+            if request.lecture_id:
+                cursor.execute(
+                    """
+                    SELECT id
+                    FROM lectures
+                    WHERE id = %s
+                      AND course_id = %s
+                    """,
+                    (
+                        request.lecture_id,
+                        course_id,
+                    ),
+                )
+
+                if cursor.fetchone() is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Lecture not found in this course"
+                    )
+
+    sources = search_course_context(
+        course_id=course_id,
+        query=request.message,
+        lecture_id=request.lecture_id,
+        max_sources=request.max_sources,
+    )
+
+    return {
+        "course_id": course_id,
+        "message": request.message,
+        "mode": request.mode,
+        "internet_used": False,
+        "source_count": len(sources),
+        "sources": sources,
+    }
