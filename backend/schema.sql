@@ -351,3 +351,45 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 CREATE INDEX IF NOT EXISTS idx_document_chunks_document_id
 ON document_chunks(document_id);
 
+-- ---------------------------------------------------------
+-- LIVE STREAM METADATA
+-- ---------------------------------------------------------
+-- The actual video is NOT stored in PostgreSQL.
+--
+-- These columns tell the frontend where the live stream
+-- can be viewed and what state the stream is currently in.
+-- ---------------------------------------------------------
+
+ALTER TABLE lectures
+ADD COLUMN IF NOT EXISTS stream_status TEXT
+NOT NULL DEFAULT 'offline'
+CHECK (
+    stream_status IN (
+        'offline',
+        'starting',
+        'live',
+        'ended',
+        'error'
+    )
+);
+
+
+ALTER TABLE lectures
+ADD COLUMN IF NOT EXISTS stream_protocol TEXT
+CHECK (
+    stream_protocol IS NULL
+    OR stream_protocol IN (
+        'hls',
+        'webrtc',
+        'mjpeg',
+        'other'
+    )
+);
+
+
+ALTER TABLE lectures
+ADD COLUMN IF NOT EXISTS live_stream_url TEXT;
+
+
+ALTER TABLE lectures
+ADD COLUMN IF NOT EXISTS stream_updated_at TIMESTAMPTZ;

@@ -100,6 +100,24 @@ class BoardEventCreate(BaseModel):
     description: str | None = None
     event_type: str = "board_changed"
 
+class LectureStreamUpdate(BaseModel):
+    stream_status: Literal[
+        "offline",
+        "starting",
+        "live",
+        "ended",
+        "error"
+    ]
+
+    stream_protocol: Literal[
+        "hls",
+        "webrtc",
+        "mjpeg",
+        "other"
+    ] | None = None
+
+    live_stream_url: str | None = None
+
 
 @app.get("/")
 def home():
@@ -156,6 +174,10 @@ def get_lecture(lecture_id: str):
                     l.ended_at,
                     l.live_summary,
                     l.final_summary,
+                    l.stream_status,
+                    l.stream_protocol,
+                    l.live_stream_url,
+                    l.stream_updated_at,
 
                     COALESCE(
                         cs.recording_view_allowed,
@@ -1535,3 +1557,97 @@ def get_board_events(lecture_id: str):
             events = cursor.fetchall()
 
     return events
+
+@app.put("/lectures/{lecture_id}/stream")
+def update_lecture_stream(
+    lecture_id: str,
+    update: LectureStreamUpdate,
+):
+    """
+    Update the live-stream metadata for a lecture.
+
+    KnightScribe stores only the stream location/status.
+    The video itself does not pass through this API.
+    """
+
+    if (
+        update.stream_status == "live"
+        and not update.live_stream_url
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="A live stream must include live_stream_url"
+        )
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                UPDATE lectures
+                SET
+                    stream_status = %s,
+                    stream_protocol = %s,
+                    live_stream_url = %s,
+                    stream_updated_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = %s
+
+                RETURNING
+                    id,
+                    stream_status,
+                    stream_protocol,
+                    live_stream_url,
+                    stream_updated_at
+                """,
+                (
+                    update.stream_status,
+                    update.stream_protocol,
+                    update.live_stream_url,
+                    lecture_id,
+                ),
+            )
+
+            lecture = cursor.fetchone()
+
+            if lecture is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Lecture not found"
+                )
+
+    return lecture
+
+@app.get("/lectures/{lecture_id}/stream")
+def get_lecture_stream(lecture_id: str):
+    """
+    Retrieve the current live-stream metadata
+    for a lecture.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    stream_status,
+                    stream_protocol,
+                    live_stream_url,
+                    stream_updated_at
+                FROM lectures
+                WHERE id = %s
+                """,
+                (lecture_id,),
+            )
+
+            stream = cursor.fetchone()
+
+            if stream is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Lecture not found"
+                )
+
+    return stream
