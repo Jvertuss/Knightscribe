@@ -93,6 +93,13 @@ class AIContextRequest(BaseModel):
 
     max_sources: int = 6
 
+class BoardEventCreate(BaseModel):
+    timestamp_seconds: float
+    image_url: str | None = None
+    ocr_text: str | None = None
+    description: str | None = None
+    event_type: str = "board_changed"
+
 
 @app.get("/")
 def home():
@@ -1412,3 +1419,119 @@ def get_ai_context(
         "source_count": len(sources),
         "sources": sources,
     }
+
+@app.post("/lectures/{lecture_id}/board-events")
+def create_board_event(
+    lecture_id: str,
+    event: BoardEventCreate,
+):
+    """
+    Store a timestamped whiteboard snapshot/event.
+    """
+
+    if event.timestamp_seconds < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="timestamp_seconds cannot be negative"
+        )
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT id
+                FROM lectures
+                WHERE id = %s
+                """,
+                (lecture_id,),
+            )
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Lecture not found"
+                )
+
+            cursor.execute(
+                """
+                INSERT INTO board_events (
+                    lecture_id,
+                    timestamp_seconds,
+                    image_url,
+                    ocr_text,
+                    description,
+                    event_type
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+
+                RETURNING
+                    id,
+                    lecture_id,
+                    timestamp_seconds,
+                    image_url,
+                    ocr_text,
+                    description,
+                    event_type,
+                    created_at
+                """,
+                (
+                    lecture_id,
+                    event.timestamp_seconds,
+                    event.image_url,
+                    event.ocr_text,
+                    event.description,
+                    event.event_type,
+                ),
+            )
+
+            created_event = cursor.fetchone()
+
+    return created_event
+
+@app.get("/lectures/{lecture_id}/board-events")
+def get_board_events(lecture_id: str):
+    """
+    Retrieve a lecture's whiteboard snapshots
+    in timestamp order.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT id
+                FROM lectures
+                WHERE id = %s
+                """,
+                (lecture_id,),
+            )
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Lecture not found"
+                )
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    lecture_id,
+                    timestamp_seconds,
+                    image_url,
+                    ocr_text,
+                    description,
+                    event_type,
+                    created_at
+                FROM board_events
+                WHERE lecture_id = %s
+                ORDER BY timestamp_seconds
+                """,
+                (lecture_id,),
+            )
+
+            events = cursor.fetchall()
+
+    return events
