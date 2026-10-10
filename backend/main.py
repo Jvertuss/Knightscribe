@@ -110,6 +110,29 @@ class LectureStreamUpdate(BaseModel):
         "error"
     ]
 
+class HardwareTranscriptSegment(BaseModel):
+    start: float
+    end: float
+    text: str
+
+
+class HardwareVisual(BaseModel):
+    time: float
+    kind: str = "whiteboard"
+    file: str | None = None
+    clean_file: str | None = None
+    title: str | None = None
+    text: str | None = None
+
+
+class HardwareLectureImport(BaseModel):
+    schema: str | None = None
+    lecture_id: str
+    started_at: str | None = None
+    duration_seconds: float | None = None
+    transcript: list[HardwareTranscriptSegment]
+    visuals: list[HardwareVisual]
+
     stream_protocol: Literal[
         "hls",
         "webrtc",
@@ -1940,4 +1963,255 @@ def get_lecture_context_window(
         "end_seconds": end_seconds,
         "transcript_segments": transcript_segments,
         "board_events": board_events,
+    }
+
+@app.post("/courses/{course_id}/hardware-import")
+def import_hardware_lecture(
+    course_id: int,
+    payload: HardwareLectureImport,
+):
+    """
+    Import a completed lecture exported by the KnightScribe
+    classroom hardware.
+
+    Converts Jack's lecture.json format into the existing
+    KnightScribe lecture, transcript, and whiteboard tables.
+    """
+
+    # ---------------------------------------------------------
+    # Validate hardware export
+    # ---------------------------------------------------------
+
+    if payload.schema not in (
+        None,
+        "knightscribe.lecture.v1",
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported hardware lecture schema"
+        )
+
+    raw_lecture_id = payload.lecture_id.strip()
+
+    if not raw_lecture_id:
+        raise HTTPException(
+            status_code=400,
+            detail="lecture_id cannot be empty"
+        )
+
+    # Jack currently exports:
+    # 2026-10-10_15-32-41
+    #
+    # The backend normally uses:
+    # lecture_2026-10-10_15-32-41
+
+    if raw_lecture_id.startswith("lecture_"):
+        lecture_id = raw_lecture_id
+    else:
+        lecture_id = f"lecture_{raw_lecture_id}"
+
+    # Validate transcript timestamps.
+    for segment in payload.transcript:
+        if segment.start < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Transcript start time cannot be negative"
+            )
+
+        if segment.end < segment.start:
+            raise HTTPException(
+                status_code=400,
+                detail="Transcript end time cannot be before start time"
+            )
+
+    # Validate visual timestamps.
+    for visual in payload.visuals:
+        if visual.time < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Visual timestamp cannot be negative"
+            )
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            # -------------------------------------------------
+            # Verify course
+            # -------------------------------------------------
+
+            cursor.execute(
+                """
+                SELECT id
+                FROM courses
+                WHERE id = %s
+                """,
+                (course_id,),
+            )
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Course not found"
+                )
+
+            # -------------------------------------------------
+            # Check whether lecture already exists
+            # -------------------------------------------------
+
+            cursor.execute(
+                """
+                SELECT id, course_id
+                FROM lectures
+                WHERE id = %s
+                """,
+                (lecture_id,),
+            )
+
+            existing_lecture = cursor.fetchone()
+
+            if (
+                existing_lecture is not None
+                and existing_lecture["course_id"] != course_id
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Lecture ID already belongs to another course"
+                )
+
+            # -------------------------------------------------
+            # Create or update lecture
+            # -------------------------------------------------
+
+            if existing_lecture is None:
+                cursor.execute(
+                    """
+                    INSERT INTO lectures (
+                        id,
+                        course_id,
+                        title,
+                        status,
+                        started_at,
+                        ended_at
+                    )
+                    VALUES (
+                        %s,
+                        %s,
+                        %s,
+                        'completed',
+                        COALESCE(%s::timestamptz, NOW()),
+                        NOW()
+                    )
+                    """,
+                    (
+                        lecture_id,
+                        course_id,
+                        f"KnightScribe Lecture {raw_lecture_id}",
+                        payload.started_at,
+                    ),
+                )
+
+            else:
+                cursor.execute(
+                    """
+                    UPDATE lectures
+                    SET
+                        status = 'completed',
+                        ended_at = NOW(),
+                        updated_at = NOW()
+                    WHERE id = %s
+                    """,
+                    (lecture_id,),
+                )
+
+            # -------------------------------------------------
+            # Replace transcript with final hardware transcript
+            # -------------------------------------------------
+
+            cursor.execute(
+                """
+                DELETE FROM transcript_segments
+                WHERE lecture_id = %s
+                """,
+                (lecture_id,),
+            )
+
+            for chunk_number, segment in enumerate(
+                payload.transcript,
+                start=1,
+            ):
+                cursor.execute(
+                    """
+                    INSERT INTO transcript_segments (
+                        lecture_id,
+                        chunk_number,
+                        start_seconds,
+                        end_seconds,
+                        text
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (
+                        lecture_id,
+                        chunk_number,
+                        segment.start,
+                        segment.end,
+                        segment.text,
+                    ),
+                )
+
+            # -------------------------------------------------
+            # Replace visual events with final hardware export
+            # -------------------------------------------------
+
+            cursor.execute(
+                """
+                DELETE FROM board_events
+                WHERE lecture_id = %s
+                """,
+                (lecture_id,),
+            )
+
+            for visual in payload.visuals:
+                cursor.execute(
+                    """
+                    INSERT INTO board_events (
+                        lecture_id,
+                        timestamp_seconds,
+                        image_url,
+                        ocr_text,
+                        description,
+                        event_type
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        lecture_id,
+                        visual.time,
+
+                        # Jack's file field is currently a local
+                        # Raspberry Pi path, not a public URL.
+                        None,
+
+                        visual.text or None,
+                        visual.title or None,
+                        visual.kind or "whiteboard",
+                    ),
+                )
+
+    return {
+        "lecture_id": lecture_id,
+        "course_id": course_id,
+        "status": "completed",
+        "imported_transcript_segments": len(payload.transcript),
+        "imported_visual_events": len(payload.visuals),
+        "local_image_files_received": sum(
+            1
+            for visual in payload.visuals
+            if visual.file
+        ),
+        "message": (
+            "Hardware lecture imported successfully. "
+            "Local Raspberry Pi image paths were not stored "
+            "as public image URLs."
+        ),
     }

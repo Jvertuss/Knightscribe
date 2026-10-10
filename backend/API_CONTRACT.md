@@ -69,6 +69,34 @@ Returns:
 This endpoint provides the lecture context used by features such as
 "What Did I Miss?"
 
+## Hardware Lecture Import
+
+POST /courses/{course_id}/hardware-import
+
+Imports a completed lecture exported by the KnightScribe classroom device.
+
+Accepts Jack's `knightscribe.lecture.v1` JSON format and automatically stores:
+
+- Lecture metadata
+- Transcript segments
+- Whiteboard OCR
+- Slide OCR
+- Timestamps
+
+The backend automatically converts hardware fields such as:
+
+- `start` -> `start_seconds`
+- `end` -> `end_seconds`
+- `time` -> `timestamp_seconds`
+
+Local Raspberry Pi snapshot paths are not currently stored as public image URLs.
+
+Imported lectures automatically work with:
+
+- Lecture timeline
+- Course search
+- AI retrieval
+- Context-window / "What Did I Miss?" retrieval
 
 ## Course Memory Search
 
