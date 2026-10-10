@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
 from database import get_connection
 
@@ -8,6 +9,17 @@ app = FastAPI(
     title="KnightScribe API",
     description="Backend API for the KnightScribe classroom memory system",
     version="0.2.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 class LectureCreate(BaseModel):
@@ -508,3 +520,107 @@ def update_course_settings(
             updated_settings = cursor.fetchone()
 
     return updated_settings
+
+@app.get("/courses")
+def get_courses():
+    """
+    Retrieve all KnightScribe courses.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    name,
+                    code,
+                    professor_name,
+                    created_at
+                FROM courses
+                ORDER BY created_at DESC
+                """
+            )
+
+            courses = cursor.fetchall()
+
+    return courses
+
+@app.get("/courses/{course_id}")
+def get_course(course_id: int):
+    """
+    Retrieve one KnightScribe course.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    name,
+                    code,
+                    professor_name,
+                    created_at
+                FROM courses
+                WHERE id = %s
+                """,
+                (course_id,),
+            )
+
+            course = cursor.fetchone()
+
+            if course is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Course not found"
+                )
+
+    return course
+
+@app.get("/courses/{course_id}/lectures")
+def get_course_lectures(course_id: int):
+    """
+    Retrieve all lectures belonging to a course.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT id
+                FROM courses
+                WHERE id = %s
+                """,
+                (course_id,),
+            )
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Course not found"
+                )
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    title,
+                    status,
+                    started_at,
+                    ended_at,
+                    live_summary,
+                    final_summary
+                FROM lectures
+                WHERE course_id = %s
+                ORDER BY started_at DESC
+                """,
+                (course_id,),
+            )
+
+            lectures = cursor.fetchall()
+
+    return lectures
