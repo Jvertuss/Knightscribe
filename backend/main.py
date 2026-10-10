@@ -1651,3 +1651,106 @@ def get_lecture_stream(lecture_id: str):
                 )
 
     return stream
+
+@app.get("/lectures/{lecture_id}/timeline")
+def get_lecture_timeline(lecture_id: str):
+    """
+    Return transcript and whiteboard events in one
+    timestamp-synchronized lecture timeline.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            # Verify that the lecture exists.
+            cursor.execute(
+                """
+                SELECT id
+                FROM lectures
+                WHERE id = %s
+                """,
+                (lecture_id,),
+            )
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Lecture not found"
+                )
+
+            # Get transcript segments.
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    start_seconds,
+                    end_seconds,
+                    text
+                FROM transcript_segments
+                WHERE lecture_id = %s
+                ORDER BY start_seconds
+                """,
+                (lecture_id,),
+            )
+
+            transcript_segments = cursor.fetchall()
+
+            # Get whiteboard events.
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    timestamp_seconds,
+                    image_url,
+                    ocr_text,
+                    description,
+                    event_type
+                FROM board_events
+                WHERE lecture_id = %s
+                ORDER BY timestamp_seconds
+                """,
+                (lecture_id,),
+            )
+
+            board_events = cursor.fetchall()
+
+    timeline = []
+
+    for segment in transcript_segments:
+        timeline.append(
+            {
+                "type": "transcript",
+                "timestamp_seconds": segment["start_seconds"],
+                "data": {
+                    "id": segment["id"],
+                    "start_seconds": segment["start_seconds"],
+                    "end_seconds": segment["end_seconds"],
+                    "text": segment["text"],
+                },
+            }
+        )
+
+    for event in board_events:
+        timeline.append(
+            {
+                "type": "whiteboard",
+                "timestamp_seconds": event["timestamp_seconds"],
+                "data": {
+                    "id": event["id"],
+                    "image_url": event["image_url"],
+                    "ocr_text": event["ocr_text"],
+                    "description": event["description"],
+                    "event_type": event["event_type"],
+                },
+            }
+        )
+
+    timeline.sort(
+        key=lambda item: item["timestamp_seconds"]
+    )
+
+    return {
+        "lecture_id": lecture_id,
+        "event_count": len(timeline),
+        "timeline": timeline,
+    }
