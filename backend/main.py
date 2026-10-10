@@ -52,6 +52,18 @@ class CourseSettingsUpdate(BaseModel):
     ai_enabled: bool
     recording_view_allowed: bool
 
+
+class QuizQuestionCreate(BaseModel):
+    question: str
+    options: list[str]
+    correct_option: int
+    explanation: str | None = None
+
+
+class QuizAnswerSubmit(BaseModel):
+    selected_option: int
+
+
 @app.get("/")
 def home():
     return {
@@ -624,3 +636,212 @@ def get_course_lectures(course_id: int):
             lectures = cursor.fetchall()
 
     return lectures
+
+@app.post("/lectures/{lecture_id}/quiz-questions")
+def create_quiz_question(
+    lecture_id: str,
+    quiz: QuizQuestionCreate,
+):
+    """
+    Store a practice quiz question for a lecture.
+    """
+
+    if len(quiz.options) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="A quiz question must have at least two options"
+        )
+
+    if quiz.correct_option < 0 or quiz.correct_option >= len(quiz.options):
+        raise HTTPException(
+            status_code=400,
+            detail="correct_option is outside the available options"
+        )
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT id
+                FROM lectures
+                WHERE id = %s
+                """,
+                (lecture_id,),
+            )
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Lecture not found"
+                )
+
+            cursor.execute(
+                """
+                INSERT INTO quiz_questions (
+                    lecture_id,
+                    question,
+                    options,
+                    correct_option,
+                    explanation
+                )
+                VALUES (%s, %s, %s, %s, %s)
+
+                RETURNING
+                    id,
+                    lecture_id,
+                    question,
+                    options,
+                    correct_option,
+                    explanation,
+                    created_at
+                """,
+                (
+                    lecture_id,
+                    quiz.question,
+                    quiz.options,
+                    quiz.correct_option,
+                    quiz.explanation,
+                ),
+            )
+
+            created_question = cursor.fetchone()
+
+    return created_question
+
+@app.get("/lectures/{lecture_id}/quiz-questions")
+def get_quiz_questions(lecture_id: str):
+    """
+    Return student-visible practice questions.
+
+    Correct answers and explanations are intentionally
+    hidden until the student submits an answer.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    l.id,
+                    COALESCE(
+                        cs.practice_questions_allowed,
+                        FALSE
+                    ) AS practice_questions_allowed
+                FROM lectures AS l
+
+                LEFT JOIN course_settings AS cs
+                    ON cs.course_id = l.course_id
+
+                WHERE l.id = %s
+                """,
+                (lecture_id,),
+            )
+
+            lecture = cursor.fetchone()
+
+            if lecture is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Lecture not found"
+                )
+
+            if not lecture["practice_questions_allowed"]:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Practice questions are disabled for this course"
+                )
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    lecture_id,
+                    question,
+                    options,
+                    created_at
+                FROM quiz_questions
+                WHERE lecture_id = %s
+                ORDER BY id
+                """,
+                (lecture_id,),
+            )
+
+            questions = cursor.fetchall()
+
+    return questions
+
+@app.post("/quiz-questions/{question_id}/answer")
+def answer_quiz_question(
+    question_id: int,
+    answer: QuizAnswerSubmit,
+):
+    """
+    Check a student's answer to a practice question.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    q.id,
+                    q.question,
+                    q.options,
+                    q.correct_option,
+                    q.explanation,
+
+                    COALESCE(
+                        cs.practice_questions_allowed,
+                        FALSE
+                    ) AS practice_questions_allowed
+
+                FROM quiz_questions AS q
+
+                JOIN lectures AS l
+                    ON l.id = q.lecture_id
+
+                LEFT JOIN course_settings AS cs
+                    ON cs.course_id = l.course_id
+
+                WHERE q.id = %s
+                """,
+                (question_id,),
+            )
+
+            question = cursor.fetchone()
+
+            if question is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Quiz question not found"
+                )
+
+            if not question["practice_questions_allowed"]:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Practice questions are disabled for this course"
+                )
+
+    options = question["options"]
+
+    if answer.selected_option < 0 or answer.selected_option >= len(options):
+        raise HTTPException(
+            status_code=400,
+            detail="selected_option is outside the available options"
+        )
+
+    is_correct = (
+        answer.selected_option == question["correct_option"]
+    )
+
+    return {
+        "question_id": question_id,
+        "correct": is_correct,
+        "selected_option": answer.selected_option,
+        "correct_option": question["correct_option"],
+        "correct_answer": options[question["correct_option"]],
+        "explanation": question["explanation"],
+    }

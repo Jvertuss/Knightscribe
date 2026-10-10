@@ -238,3 +238,44 @@ ON transcript_segments(
     lecture_id,
     chunk_number
 );
+
+-- ---------------------------------------------------------
+-- QUIZ QUESTIONS
+-- ---------------------------------------------------------
+-- Practice questions generated from lecture/course material.
+--
+-- correct_option uses a zero-based index:
+-- 0 = first option
+-- 1 = second option
+-- 2 = third option
+-- etc.
+-- ---------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS quiz_questions (
+    id BIGSERIAL PRIMARY KEY,
+
+    lecture_id TEXT NOT NULL
+        REFERENCES lectures(id)
+        ON DELETE CASCADE,
+
+    question TEXT NOT NULL,
+
+    options TEXT[] NOT NULL,
+
+    correct_option INTEGER NOT NULL,
+
+    explanation TEXT,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CHECK (cardinality(options) >= 2),
+
+    CHECK (correct_option >= 0),
+
+    CHECK (correct_option < cardinality(options))
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_quiz_questions_lecture_id
+ON quiz_questions(lecture_id);
+
