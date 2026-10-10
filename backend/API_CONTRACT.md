@@ -52,6 +52,24 @@ GET /lectures/{lecture_id}/board-events
 
 GET /lectures/{lecture_id}/timeline
 
+## Lecture Context Window
+
+GET /lectures/{lecture_id}/context-window
+
+Query parameters:
+
+- start_seconds - beginning of requested lecture window
+- end_seconds - end of requested lecture window
+
+Returns:
+
+- Transcript segments overlapping the requested time range
+- Whiteboard events occurring inside the requested time range
+
+This endpoint provides the lecture context used by features such as
+"What Did I Miss?"
+
+
 ## Course Memory Search
 
 GET /courses/{course_id}/search

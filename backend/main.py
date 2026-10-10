@@ -1830,3 +1830,114 @@ def search_course(
         "result_count": len(results),
         "results": results,
     }
+
+@app.get("/lectures/{lecture_id}/context-window")
+def get_lecture_context_window(
+    lecture_id: str,
+    start_seconds: float = Query(
+        ...,
+        ge=0,
+        description="Start of the requested lecture window in seconds"
+    ),
+    end_seconds: float = Query(
+        ...,
+        ge=0,
+        description="End of the requested lecture window in seconds"
+    ),
+):
+    """
+    Return transcript and whiteboard content from a specific
+    time window of a lecture.
+
+    This provides the course-only context used by features
+    such as 'What Did I Miss?'.
+    """
+
+    if end_seconds <= start_seconds:
+        raise HTTPException(
+            status_code=400,
+            detail="end_seconds must be greater than start_seconds"
+        )
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            # Verify lecture exists.
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    course_id,
+                    title
+                FROM lectures
+                WHERE id = %s
+                """,
+                (lecture_id,),
+            )
+
+            lecture = cursor.fetchone()
+
+            if lecture is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Lecture not found"
+                )
+
+            # Transcript segments that overlap the requested window.
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    chunk_number,
+                    start_seconds,
+                    end_seconds,
+                    text
+                FROM transcript_segments
+                WHERE lecture_id = %s
+                  AND end_seconds >= %s
+                  AND start_seconds <= %s
+                ORDER BY start_seconds
+                """,
+                (
+                    lecture_id,
+                    start_seconds,
+                    end_seconds,
+                ),
+            )
+
+            transcript_segments = cursor.fetchall()
+
+            # Whiteboard events that occurred inside the window.
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    timestamp_seconds,
+                    image_url,
+                    ocr_text,
+                    description,
+                    event_type
+                FROM board_events
+                WHERE lecture_id = %s
+                  AND timestamp_seconds >= %s
+                  AND timestamp_seconds <= %s
+                ORDER BY timestamp_seconds
+                """,
+                (
+                    lecture_id,
+                    start_seconds,
+                    end_seconds,
+                ),
+            )
+
+            board_events = cursor.fetchall()
+
+    return {
+        "lecture_id": lecture["id"],
+        "course_id": lecture["course_id"],
+        "title": lecture["title"],
+        "start_seconds": start_seconds,
+        "end_seconds": end_seconds,
+        "transcript_segments": transcript_segments,
+        "board_events": board_events,
+    }
