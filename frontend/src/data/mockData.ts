@@ -31,6 +31,7 @@ export interface Lecture {
   id: number;
   courseId: number;
   title: string;
+  backendId?: string; // the real id from the API, e.g. "lecture_2026-10-10_11-30-00"
   videoUrl: string;
   isLive: boolean;
   published: boolean;
@@ -89,9 +90,9 @@ export const defaultSettings: CourseSettings = {
 export const courses: Course[] = [
   {
     id: 1,
-    title: "Digital Logic Fundamentals",
-    instructor: "Dr. Rivera",
-    description: "Binary, logic gates, and the building blocks of digital circuits.",
+    title: "KnightScribe Demo Course",
+    instructor: "Demo Professor",
+    description: "KNT 1000",
   },
 ];
 

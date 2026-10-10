@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "./Header";
 import Footer from "./Footer";
 import StartScreen from "./pages/StartScreen";
 import CourseSelect from "./pages/CourseSelect";
 import StudentDashboard from "./pages/StudentDashboard";
 import TeacherDashboard from "./pages/TeacherDashboard";
+import { loadLectures } from "./backend";
 import {
   courses,
   lectures as initialLectures,
@@ -26,6 +27,17 @@ function App() {
   const [references, setReferences] =
     useState<ReferenceMaterial[]>(initialReferences);
   const [settings, setSettings] = useState<CourseSettings>(defaultSettings);
+
+  // Load real lectures from the backend. If it fails, keep the mock ones.
+  useEffect(() => {
+    loadLectures(1)
+      .then((real) => {
+        if (real.length > 0) setLectures(real);
+      })
+      .catch((err) => {
+        console.error("loadLectures failed:", err);
+      });
+  }, []);
 
   const course = courses.find((c) => c.id === courseId);
 
