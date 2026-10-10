@@ -232,3 +232,9 @@ ON board_events(
 
 CREATE INDEX IF NOT EXISTS idx_documents_course_id
 ON course_documents(course_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_transcript_unique_chunk
+ON transcript_segments(
+    lecture_id,
+    chunk_number
+);
