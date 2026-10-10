@@ -279,3 +279,75 @@ CREATE TABLE IF NOT EXISTS quiz_questions (
 CREATE INDEX IF NOT EXISTS idx_quiz_questions_lecture_id
 ON quiz_questions(lecture_id);
 
+-- ---------------------------------------------------------
+-- REFERENCE MATERIAL IMPROVEMENTS
+-- ---------------------------------------------------------
+-- Extra metadata for professor-provided course documents.
+-- ---------------------------------------------------------
+
+ALTER TABLE course_documents
+ADD COLUMN IF NOT EXISTS original_filename TEXT;
+
+ALTER TABLE course_documents
+ADD COLUMN IF NOT EXISTS processing_status TEXT
+NOT NULL DEFAULT 'ready'
+CHECK (
+    processing_status IN (
+        'uploaded',
+        'processing',
+        'ready',
+        'error'
+    )
+);
+
+ALTER TABLE course_documents
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ
+NOT NULL DEFAULT NOW();
+
+
+-- ---------------------------------------------------------
+-- DOCUMENT CHUNKS
+-- ---------------------------------------------------------
+-- Documents are split into smaller searchable pieces.
+--
+-- Example:
+-- document = Physics Textbook Chapter 4
+--
+-- chunk 0 = Newton's Second Law definition
+-- chunk 1 = force example
+-- chunk 2 = acceleration example
+--
+-- source_location can contain:
+-- "Page 83"
+-- "Slide 12"
+-- "Section 4.2"
+-- etc.
+-- ---------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id BIGSERIAL PRIMARY KEY,
+
+    document_id BIGINT NOT NULL
+        REFERENCES course_documents(id)
+        ON DELETE CASCADE,
+
+    chunk_index INTEGER NOT NULL,
+
+    content TEXT NOT NULL,
+
+    source_location TEXT,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CHECK (chunk_index >= 0),
+
+    UNIQUE (
+        document_id,
+        chunk_index
+    )
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_document_chunks_document_id
+ON document_chunks(document_id);
+

@@ -64,6 +64,18 @@ class QuizAnswerSubmit(BaseModel):
     selected_option: int
 
 
+class ReferenceChunkCreate(BaseModel):
+    content: str
+    source_location: str | None = None
+
+
+class CourseDocumentCreate(BaseModel):
+    title: str
+    document_type: str
+    original_filename: str | None = None
+    file_url: str | None = None
+    chunks: list[ReferenceChunkCreate]
+
 @app.get("/")
 def home():
     return {
@@ -845,3 +857,238 @@ def answer_quiz_question(
         "correct_answer": options[question["correct_option"]],
         "explanation": question["explanation"],
     }
+
+@app.post("/courses/{course_id}/documents")
+def create_course_document(
+    course_id: int,
+    document: CourseDocumentCreate,
+):
+    """
+    Store professor-approved reference material
+    and its searchable text chunks.
+    """
+
+    if len(document.chunks) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Reference material must contain at least one text chunk"
+        )
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            # Make sure the course exists.
+            cursor.execute(
+                """
+                SELECT id
+                FROM courses
+                WHERE id = %s
+                """,
+                (course_id,),
+            )
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Course not found"
+                )
+
+            # Keep a complete extracted-text copy too.
+            extracted_text = "\n\n".join(
+                chunk.content
+                for chunk in document.chunks
+            )
+
+            cursor.execute(
+                """
+                INSERT INTO course_documents (
+                    course_id,
+                    title,
+                    document_type,
+                    original_filename,
+                    file_url,
+                    extracted_text,
+                    processing_status
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    'ready'
+                )
+
+                RETURNING
+                    id,
+                    course_id,
+                    title,
+                    document_type,
+                    original_filename,
+                    file_url,
+                    processing_status,
+                    created_at,
+                    updated_at
+                """,
+                (
+                    course_id,
+                    document.title,
+                    document.document_type,
+                    document.original_filename,
+                    document.file_url,
+                    extracted_text,
+                ),
+            )
+
+            created_document = cursor.fetchone()
+
+            document_id = created_document["id"]
+
+            saved_chunks = []
+
+            for chunk_index, chunk in enumerate(document.chunks):
+
+                cursor.execute(
+                    """
+                    INSERT INTO document_chunks (
+                        document_id,
+                        chunk_index,
+                        content,
+                        source_location
+                    )
+                    VALUES (%s, %s, %s, %s)
+
+                    RETURNING
+                        id,
+                        document_id,
+                        chunk_index,
+                        content,
+                        source_location
+                    """,
+                    (
+                        document_id,
+                        chunk_index,
+                        chunk.content,
+                        chunk.source_location,
+                    ),
+                )
+
+                saved_chunks.append(
+                    cursor.fetchone()
+                )
+
+    created_document["chunks"] = saved_chunks
+
+    return created_document
+
+@app.get("/courses/{course_id}/documents")
+def get_course_documents(course_id: int):
+    """
+    Retrieve the reference materials available
+    to KnightScribe for a course.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT id
+                FROM courses
+                WHERE id = %s
+                """,
+                (course_id,),
+            )
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Course not found"
+                )
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    course_id,
+                    title,
+                    document_type,
+                    original_filename,
+                    file_url,
+                    processing_status,
+                    created_at,
+                    updated_at
+                FROM course_documents
+                WHERE course_id = %s
+                ORDER BY created_at DESC
+                """,
+                (course_id,),
+            )
+
+            documents = cursor.fetchall()
+
+    return documents
+
+@app.get("/courses/{course_id}/documents/{document_id}")
+def get_course_document(
+    course_id: int,
+    document_id: int,
+):
+    """
+    Retrieve one reference document and all
+    searchable chunks belonging to it.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    course_id,
+                    title,
+                    document_type,
+                    original_filename,
+                    file_url,
+                    processing_status,
+                    created_at,
+                    updated_at
+                FROM course_documents
+                WHERE id = %s
+                  AND course_id = %s
+                """,
+                (
+                    document_id,
+                    course_id,
+                ),
+            )
+
+            document = cursor.fetchone()
+
+            if document is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Reference document not found"
+                )
+
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    chunk_index,
+                    content,
+                    source_location
+                FROM document_chunks
+                WHERE document_id = %s
+                ORDER BY chunk_index
+                """,
+                (document_id,),
+            )
+
+            chunks = cursor.fetchall()
+
+    document["chunks"] = chunks
+
+    return document
