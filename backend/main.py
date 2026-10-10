@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
+from document_processing import extract_document
 from database import get_connection
 
 
@@ -1092,3 +1093,166 @@ def get_course_document(
     document["chunks"] = chunks
 
     return document
+
+@app.post("/courses/{course_id}/documents/upload")
+async def upload_course_document(
+    course_id: int,
+    file: UploadFile = File(...),
+    title: str | None = Form(None),
+):
+    """
+    Upload a real professor-approved PDF, PowerPoint,
+    or text file and automatically extract searchable text.
+    """
+
+    MAX_FILE_SIZE = 20 * 1024 * 1024
+
+    filename = file.filename
+
+    if not filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file must have a filename"
+        )
+
+    file_data = await file.read()
+
+    if len(file_data) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is empty"
+        )
+
+    if len(file_data) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="Uploaded file is larger than the 20 MB limit"
+        )
+
+    try:
+        document_type, extracted_chunks = extract_document(
+            filename,
+            file_data,
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not process uploaded document: {error}"
+        )
+
+    document_title = title or filename
+
+    extracted_text = "\n\n".join(
+        chunk["content"]
+        for chunk in extracted_chunks
+    )
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            # Verify that the course exists.
+            cursor.execute(
+                """
+                SELECT id
+                FROM courses
+                WHERE id = %s
+                """,
+                (course_id,),
+            )
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Course not found"
+                )
+
+            # Store document metadata.
+            cursor.execute(
+                """
+                INSERT INTO course_documents (
+                    course_id,
+                    title,
+                    document_type,
+                    original_filename,
+                    file_url,
+                    extracted_text,
+                    processing_status
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    NULL,
+                    %s,
+                    'ready'
+                )
+
+                RETURNING
+                    id,
+                    course_id,
+                    title,
+                    document_type,
+                    original_filename,
+                    file_url,
+                    processing_status,
+                    created_at,
+                    updated_at
+                """,
+                (
+                    course_id,
+                    document_title,
+                    document_type,
+                    filename,
+                    extracted_text,
+                ),
+            )
+
+            created_document = cursor.fetchone()
+
+            document_id = created_document["id"]
+
+            saved_chunks = []
+
+            for chunk_index, chunk in enumerate(
+                extracted_chunks
+            ):
+                cursor.execute(
+                    """
+                    INSERT INTO document_chunks (
+                        document_id,
+                        chunk_index,
+                        content,
+                        source_location
+                    )
+                    VALUES (%s, %s, %s, %s)
+
+                    RETURNING
+                        id,
+                        document_id,
+                        chunk_index,
+                        content,
+                        source_location
+                    """,
+                    (
+                        document_id,
+                        chunk_index,
+                        chunk["content"],
+                        chunk["source_location"],
+                    ),
+                )
+
+                saved_chunks.append(
+                    cursor.fetchone()
+                )
+
+    created_document["chunks"] = saved_chunks
+
+    return created_document
