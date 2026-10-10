@@ -26,6 +26,20 @@ class TranscriptSegmentCreate(BaseModel):
 class LiveSummaryUpdate(BaseModel):
     live_summary: str
 
+
+class LectureCompleteUpdate(BaseModel):
+    final_summary: str
+    recording_url: str | None = None
+
+
+class CourseSettingsUpdate(BaseModel):
+    explanations_allowed: bool
+    hints_allowed: bool
+    final_answers_allowed: bool
+    practice_questions_allowed: bool
+    ai_enabled: bool
+    recording_view_allowed: bool
+
 @app.get("/")
 def home():
     return {
@@ -68,20 +82,40 @@ def get_lecture(lecture_id: str):
     with get_connection() as connection:
         with connection.cursor() as cursor:
 
+            # Get the lecture and apply the professor's
+            # recording-view permission.
             cursor.execute(
                 """
                 SELECT
-                    id,
-                    course_id,
-                    title,
-                    status,
-                    started_at,
-                    ended_at,
-                    live_summary,
-                    final_summary,
-                    recording_url
-                FROM lectures
-                WHERE id = %s
+                    l.id,
+                    l.course_id,
+                    l.title,
+                    l.status,
+                    l.started_at,
+                    l.ended_at,
+                    l.live_summary,
+                    l.final_summary,
+
+                    COALESCE(
+                        cs.recording_view_allowed,
+                        FALSE
+                    ) AS recording_view_allowed,
+
+                    CASE
+                        WHEN COALESCE(
+                            cs.recording_view_allowed,
+                            FALSE
+                        )
+                        THEN l.recording_url
+                        ELSE NULL
+                    END AS recording_url
+
+                FROM lectures AS l
+
+                LEFT JOIN course_settings AS cs
+                    ON cs.course_id = l.course_id
+
+                WHERE l.id = %s
                 """,
                 (lecture_id,),
             )
@@ -94,6 +128,8 @@ def get_lecture(lecture_id: str):
                     detail="Lecture not found"
                 )
 
+            # Get all timestamped transcript segments
+            # belonging to this lecture.
             cursor.execute(
                 """
                 SELECT
@@ -303,3 +339,172 @@ def end_lecture(lecture_id: str):
 
     return lecture
 
+@app.put("/lectures/{lecture_id}/complete")
+def complete_lecture(
+    lecture_id: str,
+    update: LectureCompleteUpdate,
+):
+    """
+    Save final lecture results and mark processing complete.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                UPDATE lectures
+                SET
+                    status = 'completed',
+                    final_summary = %s,
+                    recording_url = %s,
+                    updated_at = NOW()
+                WHERE id = %s
+                RETURNING
+                    id,
+                    status,
+                    final_summary,
+                    recording_url,
+                    updated_at
+                """,
+                (
+                    update.final_summary,
+                    update.recording_url,
+                    lecture_id,
+                ),
+            )
+
+            lecture = cursor.fetchone()
+
+            if lecture is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Lecture not found"
+                )
+
+    return lecture
+
+@app.get("/courses/{course_id}/settings")
+def get_course_settings(course_id: int):
+    """
+    Retrieve the professor-controlled settings for a course.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    course_id,
+                    explanations_allowed,
+                    hints_allowed,
+                    final_answers_allowed,
+                    practice_questions_allowed,
+                    ai_enabled,
+                    recording_view_allowed,
+                    updated_at
+                FROM course_settings
+                WHERE course_id = %s
+                """,
+                (course_id,),
+            )
+
+            settings = cursor.fetchone()
+
+            if settings is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Course settings not found"
+                )
+
+    return settings
+
+@app.put("/courses/{course_id}/settings")
+def update_course_settings(
+    course_id: int,
+    settings: CourseSettingsUpdate,
+):
+    """
+    Create or update the professor-controlled settings
+    for a course.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT id
+                FROM courses
+                WHERE id = %s
+                """,
+                (course_id,),
+            )
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Course not found"
+                )
+
+            cursor.execute(
+                """
+                INSERT INTO course_settings (
+                    course_id,
+                    explanations_allowed,
+                    hints_allowed,
+                    final_answers_allowed,
+                    practice_questions_allowed,
+                    ai_enabled,
+                    recording_view_allowed
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+
+                ON CONFLICT (course_id)
+
+                DO UPDATE SET
+                    explanations_allowed =
+                        EXCLUDED.explanations_allowed,
+
+                    hints_allowed =
+                        EXCLUDED.hints_allowed,
+
+                    final_answers_allowed =
+                        EXCLUDED.final_answers_allowed,
+
+                    practice_questions_allowed =
+                        EXCLUDED.practice_questions_allowed,
+
+                    ai_enabled =
+                        EXCLUDED.ai_enabled,
+
+                    recording_view_allowed =
+                        EXCLUDED.recording_view_allowed,
+
+                    updated_at = NOW()
+
+                RETURNING
+                    course_id,
+                    explanations_allowed,
+                    hints_allowed,
+                    final_answers_allowed,
+                    practice_questions_allowed,
+                    ai_enabled,
+                    recording_view_allowed,
+                    updated_at
+                """,
+                (
+                    course_id,
+                    settings.explanations_allowed,
+                    settings.hints_allowed,
+                    settings.final_answers_allowed,
+                    settings.practice_questions_allowed,
+                    settings.ai_enabled,
+                    settings.recording_view_allowed,
+                ),
+            )
+
+            updated_settings = cursor.fetchone()
+
+    return updated_settings
