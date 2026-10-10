@@ -131,11 +131,13 @@ The AI retrieval endpoint searches only KnightScribe course material:
 
 - Professor reference documents
 - Lecture transcripts
+- Whiteboard OCR and descriptions
+
+Results may include slide/page references or lecture timestamps.
 
 It does not perform internet searches.
 
 The final chatbot endpoint will be added after AI-service integration.
-
 
 ## Important Integration Rules
 

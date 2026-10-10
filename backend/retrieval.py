@@ -8,9 +8,9 @@ def search_course_context(
     max_sources: int = 6,
 ):
     """
-    Search professor-approved course documents and
-    lecture transcripts for information relevant
-    to a student's question.
+    Search professor-approved course documents,
+    lecture transcripts, and whiteboard content
+    for information relevant to a student's question.
     """
 
     with get_connection() as connection:
@@ -179,6 +179,118 @@ def search_course_context(
 
             lecture_results = cursor.fetchall()
 
+            # ---------------------------------------------------------
+            # WHITEBOARD CONTENT
+            # ---------------------------------------------------------
+
+            if lecture_id:
+                cursor.execute(
+                    """
+                    SELECT
+                        be.id,
+                        l.id AS lecture_id,
+                        l.title,
+                        be.timestamp_seconds,
+                        be.ocr_text,
+                        be.description,
+
+                        ts_rank_cd(
+                            to_tsvector(
+                                'english',
+                                COALESCE(be.ocr_text, '')
+                                || ' '
+                                || COALESCE(be.description, '')
+                            ),
+                            websearch_to_tsquery(
+                                'english',
+                                %s
+                            )
+                        ) AS relevance
+
+                    FROM board_events AS be
+
+                    JOIN lectures AS l
+                        ON l.id = be.lecture_id
+
+                    WHERE l.course_id = %s
+                    AND l.id = %s
+
+                    AND to_tsvector(
+                            'english',
+                            COALESCE(be.ocr_text, '')
+                            || ' '
+                            || COALESCE(be.description, '')
+                        )
+                        @@
+                        websearch_to_tsquery(
+                            'english',
+                            %s
+                        )
+
+                    ORDER BY relevance DESC
+                    """,
+                    (
+                        query,
+                        course_id,
+                        lecture_id,
+                        query,
+                    ),
+                )
+
+            else:
+                cursor.execute(
+                    """
+                    SELECT
+                        be.id,
+                        l.id AS lecture_id,
+                        l.title,
+                        be.timestamp_seconds,
+                        be.ocr_text,
+                        be.description,
+
+                        ts_rank_cd(
+                            to_tsvector(
+                                'english',
+                                COALESCE(be.ocr_text, '')
+                                || ' '
+                                || COALESCE(be.description, '')
+                            ),
+                            websearch_to_tsquery(
+                                'english',
+                                %s
+                            )
+                        ) AS relevance
+
+                    FROM board_events AS be
+
+                    JOIN lectures AS l
+                        ON l.id = be.lecture_id
+
+                    WHERE l.course_id = %s
+
+                    AND to_tsvector(
+                            'english',
+                            COALESCE(be.ocr_text, '')
+                            || ' '
+                            || COALESCE(be.description, '')
+                        )
+                        @@
+                        websearch_to_tsquery(
+                            'english',
+                            %s
+                        )
+
+                    ORDER BY relevance DESC
+                    """,
+                    (
+                        query,
+                        course_id,
+                        query,
+                    ),
+                )
+
+            board_matches = cursor.fetchall()
+
     # ---------------------------------------------
     # Convert everything into one source format
     # ---------------------------------------------
@@ -212,6 +324,28 @@ def search_course_context(
                 "relevance": float(result["relevance"]),
             }
         )
+    
+    for match in board_matches:
+        content_parts = []
+
+        if match["ocr_text"]:
+            content_parts.append(match["ocr_text"])
+
+        if match["description"]:
+            content_parts.append(match["description"])
+
+        sources.append(
+            {
+                "source_type": "whiteboard",
+                "document_id": None,
+                "title": match["title"],
+                "content": " ".join(content_parts),
+                "source_location": None,
+                "lecture_id": match["lecture_id"],
+                "timestamp_seconds": match["timestamp_seconds"],
+                "relevance": float(match["relevance"]),
+            }
+        )    
 
     sources.sort(
         key=lambda source: source["relevance"],
