@@ -52,6 +52,24 @@ GET /lectures/{lecture_id}/board-events
 
 GET /lectures/{lecture_id}/timeline
 
+## Course Memory Search
+
+GET /courses/{course_id}/search
+
+Query parameters:
+
+- q - search text
+- lecture_id - optional lecture filter
+- max_results - optional result limit
+
+Searches:
+
+- Professor reference materials
+- Lecture transcripts
+- Whiteboard OCR and descriptions
+
+Results include source type, lecture timestamp, slide/page location,
+and whiteboard image URL when applicable.
 
 ## Live Video Metadata
 

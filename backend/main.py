@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Literal
@@ -6,6 +6,7 @@ from typing import Literal
 from database import get_connection
 from document_processing import extract_document
 from retrieval import search_course_context
+from search import search_course_memory
 
 
 app = FastAPI(
@@ -1753,4 +1754,79 @@ def get_lecture_timeline(lecture_id: str):
         "lecture_id": lecture_id,
         "event_count": len(timeline),
         "timeline": timeline,
+    }
+
+@app.get("/courses/{course_id}/search")
+def search_course(
+    course_id: int,
+    q: str = Query(
+        ...,
+        min_length=2,
+        description="Text to search for"
+    ),
+    lecture_id: str | None = None,
+    max_results: int = Query(
+        10,
+        ge=1,
+        le=25,
+    ),
+):
+    """
+    Search KnightScribe's course memory.
+
+    Searches professor reference material,
+    lecture transcripts, and whiteboard content.
+    """
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT id
+                FROM courses
+                WHERE id = %s
+                """,
+                (course_id,),
+            )
+
+            if cursor.fetchone() is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Course not found"
+                )
+
+            if lecture_id:
+                cursor.execute(
+                    """
+                    SELECT id
+                    FROM lectures
+                    WHERE id = %s
+                      AND course_id = %s
+                    """,
+                    (
+                        lecture_id,
+                        course_id,
+                    ),
+                )
+
+                if cursor.fetchone() is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Lecture not found in this course"
+                    )
+
+    results = search_course_memory(
+        course_id=course_id,
+        query=q,
+        lecture_id=lecture_id,
+        max_results=max_results,
+    )
+
+    return {
+        "course_id": course_id,
+        "query": q,
+        "lecture_id": lecture_id,
+        "result_count": len(results),
+        "results": results,
     }
