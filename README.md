@@ -32,6 +32,16 @@ Built in one weekend for a hackathon by Larry Lekin, Gustavo Dizeu, Yoni Ramos a
   questions, rewatching recordings.
 - Generate or regenerate the AI summary and quiz for any lecture; write practice questions by hand.
 
+## Core technology
+
+| Technology | What it does in Knight Scribe |
+|---|---|
+| **[Google Gemini](https://ai.google.dev/)** | Everything AI: the tutor chat (it also watches the lecture video), the live and final lecture summaries, and the practice quizzes |
+| **[Whisper](https://github.com/openai/whisper)** (OpenAI, run with [faster-whisper](https://github.com/SYSTRAN/faster-whisper)) | Transcribes the lecture audio accurately |
+| **[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)** (k2-fsa) | The live captions on the Raspberry Pi, about 1-2 seconds behind the speaker |
+| **[NanoDet](https://github.com/RangiLyu/nanodet)** (from the [OpenCV Model Zoo](https://github.com/opencv/opencv_zoo)) | Person detection: a board photo is only taken when nobody is standing in front of the board |
+| **[OpenCV](https://opencv.org/)** | The teaching area: the professor's board or slide area, picked with 4 corners (or found automatically), is straightened with a 4-corner perspective transform, then checked for new writing and cleaned up |
+
 ## How it works
 
 ```mermaid
@@ -54,7 +64,8 @@ flowchart LR
 1. **Capture** (`knightcribe.cpp`): one FFmpeg process reads the 720p MJPEG camera and the microphone. It
    records H.264 video in 5-minute pieces, FLAC audio and 15-second WAV pieces for transcription, and keeps a
    live picture for the website. OpenCV finds the board, NanoDet checks nobody is in front of it, and the
-   board is photographed (plus a cleaned, saturated copy) when the writing changes. Tesseract reads its text
+   board is photographed (plus a cleaned, saturated copy) when the writing changes. The teaching area is
+   set with 4 corners and straightened by OpenCV's perspective transform. Tesseract reads its text
    for the Pi's own page.
 2. **Sending** (`cloud.py`, started by `web.py`): creates the lecture on the backend, marks it live with the
    camera link, uploads each finished audio piece for Whisper, posts board photos, asks for an AI summary
@@ -147,15 +158,15 @@ Each one is used under its own license; see the linked projects.
 ### AI models and AI services
 | What | Used for |
 |---|---|
-| [Google Gemini API](https://ai.google.dev/) (model `gemini-3.5-flash-lite`) and [Google AI Studio](https://aistudio.google.com/) | AI tutor chat (including watching the lecture video), lecture summaries, practice quizzes |
+| [Google Gemini API](https://ai.google.dev/) (model `gemini-3.5-flash-lite`) and [Google AI Studio](https://aistudio.google.com/) | Everything AI-related: the tutor chat (including watching the lecture video), lecture summaries, practice quizzes |
 | [Google Gen AI Python SDK](https://github.com/googleapis/python-genai) (`google-genai`) | Calling Gemini, uploading lecture videos to Gemini's file storage |
-| [Whisper](https://github.com/openai/whisper) by OpenAI (model `small.en`) | Accurate lecture transcription |
+| [Whisper](https://github.com/openai/whisper) by OpenAI (model `small.en`) | Lecture transcription |
 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) by SYSTRAN, on [CTranslate2](https://github.com/OpenNMT/CTranslate2) by OpenNMT | Running Whisper fast on a laptop CPU |
 | [Silero VAD](https://github.com/snakers4/silero-vad) (bundled with faster-whisper) | Skipping silence before transcription |
 | [Hugging Face Hub](https://huggingface.co/) | Downloading the Whisper model files |
-| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) by k2-fsa (Next-gen Kaldi), streaming Zipformer English model `sherpa-onnx-streaming-zipformer-en-20M-2023-02-17` | Instant captions on the Raspberry Pi |
+| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) by k2-fsa (Next-gen Kaldi), streaming Zipformer English model `sherpa-onnx-streaming-zipformer-en-20M-2023-02-17` | Live captions on the Raspberry Pi |
 | [ONNX Runtime](https://onnxruntime.ai/) | Runs the sherpa-onnx and Silero VAD models |
-| [NanoDet](https://github.com/RangiLyu/nanodet) from the [OpenCV Model Zoo](https://github.com/opencv/opencv_zoo) | Detecting a person in front of the board |
+| [NanoDet](https://github.com/RangiLyu/nanodet) from the [OpenCV Model Zoo](https://github.com/opencv/opencv_zoo) | Person detection (nobody in front of the board before a photo is taken) |
 | [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) | Reading board and slide text on the Pi |
 
 ### Website
@@ -189,7 +200,7 @@ Each one is used under its own license; see the linked projects.
 |---|---|
 | [Raspberry Pi 4](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/) (4 GB) with Raspberry Pi OS (Debian) | The classroom computer |
 | USB MJPEG camera (720p30) and USB microphone | Capture |
-| [OpenCV](https://opencv.org/) (C++ and Python) | Board detection, image cleanup, person detection (DNN), live picture resizing |
+| [OpenCV](https://opencv.org/) (C++ and Python) | The teaching area: 4-corner selection and perspective transform that straightens the board or slides; change detection, image cleanup, running NanoDet (DNN module), live picture resizing |
 | [FFmpeg](https://ffmpeg.org/) (V4L2 and ALSA input, `h264_v4l2m2m` hardware encoder, libx264, AAC, FLAC) | Recording, audio pieces, live picture, compressing recordings |
 | [Video4Linux](https://www.linuxtv.org/) (`v4l-utils`) and ALSA | Camera and microphone access |
 | [Flask](https://flask.palletsprojects.com/) | The Pi's control page and live streams |
