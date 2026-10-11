@@ -2,6 +2,34 @@
 
 KnightScribe turns live lectures into intelligent, searchable memory by connecting what professors say, write, and show. Students can revisit key moments, recover what they missed, and turn class content into organized knowledge built for studying.
 
+## Running the whole project
+
+Three parts: the **classroom device** (Raspberry Pi: camera, mic, board snapshots), the **backend**
+(`backend/`, FastAPI + PostgreSQL + Gemini + Whisper) and the **website** (`frontend/`, React + Vite).
+
+**1. Backend** (on the laptop that runs the website; Linux / dev container shell)
+```
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-whisper.txt   # Whisper is optional
+cp .env.example .env            # then put your Gemini key in .env
+bash setup_local_db.sh          # once: local PostgreSQL database + demo course
+bash start_local.sh             # API on http://localhost:8000 (docs: /docs)
+```
+
+**2. Website**
+```
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0   # open http://localhost:5173
+```
+`frontend/.env` holds the backend address (`VITE_API_BASE_URL`) and the Pi's addresses.
+
+**3. Classroom device:** see below. The Pi must reach the backend: put its address in
+`backend.txt` next to `cloud.py` on the Pi (one line, e.g. `http://192.168.137.153:8000`).
+`web.py` starts `cloud.py`, which sends each lecture live (audio for Whisper, board photos,
+the stream link) and uploads the recording when it ends.
+
 ## The classroom device
 
 Classroom lecture capture on a Raspberry Pi 4: records the lecture (720p30 video + mic audio)
