@@ -141,27 +141,20 @@ and the Pi are). While the backend runs, you can browse the API at `http://local
 
 ## Credits
 
-Knight Scribe stands on a lot of other people's work. Thank you to everyone behind these projects. Each one
-is used under its own license.
+Thanks to the people behind the projects we built on:
 
-**The main pieces**
-- [Whisper](https://github.com/openai/whisper) by OpenAI (`small.en`), run with [faster-whisper](https://github.com/SYSTRAN/faster-whisper) by SYSTRAN: the transcript
-- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) by k2-fsa, with the `sherpa-onnx-streaming-zipformer-en-20M-2023-02-17` model: live captions on the Pi
-- [NanoDet](https://github.com/RangiLyu/nanodet), from the [OpenCV Model Zoo](https://github.com/opencv/opencv_zoo): person detection
-- [OpenCV](https://opencv.org/): the teaching area (4 corners and the perspective transform), spotting new writing and cleaning up the board photos
-- [Google Gemini](https://ai.google.dev/) (`gemini-3.5-flash-lite`) with the [Google Gen AI SDK](https://github.com/googleapis/python-genai) and [Google AI Studio](https://aistudio.google.com/): summaries, practice questions and Q&A
-
-**Also used**
-- Speech and models: [CTranslate2](https://github.com/OpenNMT/CTranslate2), [Silero VAD](https://github.com/snakers4/silero-vad), [ONNX Runtime](https://onnxruntime.ai/), [Hugging Face](https://huggingface.co/) (model downloads), [Tesseract OCR](https://github.com/tesseract-ocr/tesseract)
-- Website: [React](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vite.dev/) with [Rolldown](https://rolldown.rs/) and [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react) (started from Vite's template), the [React Compiler](https://react.dev/learn/react-compiler), [Babel](https://babeljs.io/), [ESLint](https://eslint.org/) with [typescript-eslint](https://typescript-eslint.io/), [Node.js](https://nodejs.org/), [npm](https://www.npmjs.com/), and the [Sora](https://fonts.google.com/specimen/Sora) and [Special Elite](https://fonts.google.com/specimen/Special+Elite) fonts from [Google Fonts](https://fonts.google.com/)
-- Backend: [FastAPI](https://fastapi.tiangolo.com/), [Starlette](https://www.starlette.io/), [Pydantic](https://docs.pydantic.dev/), [Uvicorn](https://www.uvicorn.org/), [PostgreSQL](https://www.postgresql.org/), [psycopg 3](https://www.psycopg.org/), [pypdf](https://github.com/py-pdf/pypdf), [python-pptx](https://github.com/scanny/python-pptx), [python-dotenv](https://github.com/theskumar/python-dotenv), [argon2-cffi](https://github.com/hynek/argon2-cffi), [email-validator](https://github.com/JoshData/python-email-validator), [NumPy](https://numpy.org/)
-- Hosting during development: [Neon](https://neon.tech/) (database) and [Render](https://render.com/) (backend)
-- Classroom device: a [Raspberry Pi 4](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/) (4 GB) with Raspberry Pi OS, a USB camera and microphone, [FFmpeg](https://ffmpeg.org/), [Flask](https://flask.palletsprojects.com/), [Video4Linux](https://www.linuxtv.org/), ALSA, [CMake](https://cmake.org/), GCC, and [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) for sharing the camera while developing
-- Tools: [GitHub](https://github.com/), [Visual Studio Code](https://code.visualstudio.com/), [Dev Containers](https://containers.dev/), [Docker](https://www.docker.com/), and [Claude Code](https://www.anthropic.com/claude-code) by Anthropic plus other AI coding assistants, which helped us write, test and debug parts of the code
+- [Whisper](https://github.com/openai/whisper) by OpenAI, run with [faster-whisper](https://github.com/SYSTRAN/faster-whisper): the transcript
+- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx): live captions on the Pi
+- [NanoDet](https://github.com/RangiLyu/nanodet): person detection
+- [OpenCV](https://opencv.org/): the teaching area and its 4-corner perspective transform
+- [Google Gemini](https://ai.google.dev/): summaries, practice questions and Q&A
+- [FFmpeg](https://ffmpeg.org/): recording and compressing the video
+- [React](https://react.dev/) and [Vite](https://vite.dev/) for the website, [FastAPI](https://fastapi.tiangolo.com/) and [PostgreSQL](https://www.postgresql.org/) for the backend, [Flask](https://flask.palletsprojects.com/) on the [Raspberry Pi](https://www.raspberrypi.com/)
+- [Claude Code](https://www.anthropic.com/claude-code) and other AI coding assistants helped us write and debug parts of the code
 
 The black and gold colors are a nod to UCF. Knight Scribe is a student hackathon project and isn't
 affiliated with or endorsed by the University of Central Florida.
 
 ## License
 
-MIT (see [`LICENSE`](LICENSE)). Everything listed under Credits keeps its own license.
+MIT (see [`LICENSE`](LICENSE)). The projects we used keep their own licenses.
