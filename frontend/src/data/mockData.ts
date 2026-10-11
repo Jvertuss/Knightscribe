@@ -12,12 +12,25 @@ export interface QuizQuestion {
   id: number;
   question: string;
   choices: string[];
-  answerIndex: number;
+  answerIndex: number; // -1 for backend questions: the server checks the answer
+  backendId?: number; // set for questions stored on the backend
+}
+
+// Where an AI answer came from: a reference document, or a moment in a lecture
+export interface ChatSource {
+  sourceId: string;
+  type: "document" | "transcript" | "board_event";
+  title: string;
+  location: string | null; // e.g. "Slide 12"
+  lectureId: string | null; // the backend lecture id
+  seconds: number | null; // when it happened in that lecture
 }
 
 export interface ChatMessage {
   role: "user" | "bot";
   text: string;
+  sources?: ChatSource[];
+  error?: boolean;
 }
 
 export interface Course {
@@ -32,6 +45,7 @@ export interface Lecture {
   courseId: number;
   title: string;
   backendId?: string; // the real id from the API, e.g. "lecture_2026-10-10_11-30-00"
+  local?: boolean; // added by the teacher in this browser, not on the backend
   videoUrl: string;
   isLive: boolean;
   published: boolean;
@@ -48,6 +62,7 @@ export type ReferenceType = "textbook" | "slides" | "article" | "video";
 
 export interface ReferenceMaterial {
   id: number;
+  backendId?: number; // set for documents stored on the backend (the AI can cite these)
   courseId: number;
   lectureId?: number; // leave out for course-wide material
   title: string;
@@ -61,7 +76,7 @@ export interface Chapter {
   lectureId: number;
   startSeconds: number; // offset from the start of the video or stream
   title: string;
-  snapshotUrl: string; // image the CV software saved
+  snapshotUrl: string; // photo the classroom camera saved
 }
 
 export interface CourseSettings {
@@ -75,7 +90,7 @@ export interface CourseSettings {
 
 export const greeting: ChatMessage = {
   role: "bot",
-  text: "Hi! Ask me anything about this lecture.",
+  text: "Hi! Ask me anything about this lecture. I answer only from your course material and lectures.",
 };
 
 export const defaultSettings: CourseSettings = {

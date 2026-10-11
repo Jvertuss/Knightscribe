@@ -17,17 +17,17 @@ function CourseSelect({
 }: CourseSelectProps) {
   const isTeacher = role === "teacher";
 
-  // students only count lectures the teacher has published
-  function countFor(courseId: number) {
+  // students only see lectures the teacher has published
+  function lecturesFor(courseId: number) {
     return lectures.filter(
       (l) => l.courseId === courseId && (isTeacher || l.published)
-    ).length;
+    );
   }
 
   return (
     <div className="course-select">
       <button className="back-link" onClick={onBack}>
-        Back
+        <span aria-hidden="true">←</span> Back
       </button>
 
       <div className="course-hero">
@@ -35,36 +35,56 @@ function CourseSelect({
         <h1 className="brand-title">Knight Scribe</h1>
       </div>
 
+      <span className="role-pill">
+        {isTeacher ? "Teacher view" : "Student view"}
+      </span>
       <h2 className="course-heading">
         {isTeacher ? "Your courses" : "My courses"}
       </h2>
-      <p className="course-sub">Pick a course to open it</p>
+      <p className="course-sub">
+        {isTeacher
+          ? "Choose a course to manage lectures and settings."
+          : "Choose a course to watch lectures and study."}
+      </p>
 
       <div className="course-grid">
         {courses.map((course) => {
-          const n = countFor(course.id);
+          const courseLectures = lecturesFor(course.id);
+          const n = courseLectures.length;
+          const isLive = courseLectures.some((l) => l.isLive);
           return (
             <button
               key={course.id}
               className="course-tile"
               onClick={() => onSelect(course.id)}
             >
+              <span className="course-tile-top">
+                <span className="course-code">{course.description}</span>
+                {isLive && (
+                  <span className="course-live">
+                    <span className="live-dot" />
+                    Live now
+                  </span>
+                )}
+              </span>
               <span className="course-tile-title">{course.title}</span>
-              <span className="course-tile-instructor">{course.instructor}</span>
               <span className="course-tile-meta">
-                {n} {n === 1 ? "lecture" : "lectures"}
+                {course.instructor} · {n} {n === 1 ? "lecture" : "lectures"}
+              </span>
+              <span className="course-tile-arrow" aria-hidden="true">
+                →
               </span>
             </button>
           );
         })}
 
         {/* Shows judges where more courses would go */}
-        <div className="course-tile placeholder">
+        <div className="course-tile placeholder" aria-disabled="true">
           <span className="course-plus">+</span>
           <span className="course-tile-title">
             {isTeacher ? "Create a course" : "Join a course"}
           </span>
-          <span className="course-tile-desc">Coming soon</span>
+          <span className="course-tile-meta">Coming soon</span>
         </div>
       </div>
     </div>

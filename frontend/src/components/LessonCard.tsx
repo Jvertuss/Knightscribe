@@ -7,17 +7,31 @@ interface LessonCardProps {
 }
 
 function LessonCard({ lesson, selected, onSelect }: LessonCardProps) {
+  const lines = lesson.transcript.length;
+
   return (
-    <div
+    <button
       className={selected ? "lesson-card selected" : "lesson-card"}
+      aria-pressed={selected}
       onClick={onSelect}
     >
-      <h2>
-         {lesson.title}
-         {lesson.isLive && <span className="live-badge">LIVE</span>}
-      </h2>
-      <p>{lesson.completed ? "Completed" : "Not started"}</p>
-    </div>
+      {lesson.isLive ? (
+        <span className="lesson-status live">
+          <span className="live-dot" />
+          Live now
+        </span>
+      ) : (
+        <span className={lesson.completed ? "lesson-status done" : "lesson-status"}>
+          {lesson.completed ? "Completed" : "Recorded"}
+        </span>
+      )}
+      <span className="lesson-title">{lesson.title}</span>
+      <span className="lesson-meta">
+        {lines === 0
+          ? "No transcript yet"
+          : `${lines} transcript ${lines === 1 ? "line" : "lines"}`}
+      </span>
+    </button>
   );
 }
 

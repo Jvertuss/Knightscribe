@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import type { SummaryPoint } from "../data/mockData";
 
 interface LiveSummaryPanelProps {
@@ -7,29 +6,17 @@ interface LiveSummaryPanelProps {
   onSeek?: (seconds: number) => void;
 }
 
-// "01:30" -> 90
-function toSeconds(time: string) {
+// "1:30" -> 90 ("" when the point has no time)
+function toSeconds(time: string): number | null {
   const [minutes, seconds] = time.split(":").map(Number);
-  return minutes * 60 + seconds;
+  return Number.isFinite(minutes) && Number.isFinite(seconds) ? minutes * 60 + seconds : null;
 }
 
+// The AI's notes for the lecture: rewritten every minute while it is live,
+// and a final version once it has ended. Each point jumps to when it was said.
 function LiveSummaryPanel({ points, isLive, onSeek }: LiveSummaryPanelProps) {
-  const [visibleCount, setVisibleCount] = useState(
-    isLive ? Math.min(1, points.length) : points.length
-  );
-
-  // TODO (AI teammate): replace this fake timer with real data, e.g.
-  // GET /api/lectures/:id/summary  ->  SummaryPoint[]  (poll every few seconds)
-  useEffect(() => {
-    if (!isLive) return;
-    const timer = setInterval(() => {
-      setVisibleCount((count) => (count < points.length ? count + 1 : count));
-    }, 4000);
-    return () => clearInterval(timer);
-  }, [isLive, points.length]);
-
-  // newest first
-  const visible = points.slice(0, visibleCount).reverse();
+  // newest first while live, so the latest topic is on top
+  const shown = isLive ? [...points].reverse() : points;
 
   return (
     <div className="summary-panel">
@@ -37,20 +24,38 @@ function LiveSummaryPanel({ points, isLive, onSeek }: LiveSummaryPanelProps) {
         <h3>{isLive ? "Live Summary" : "Summary"}</h3>
         {isLive && <span className="live-badge">LIVE</span>}
       </div>
+      {isLive && points.length > 0 && (
+        <p className="summary-note">Written by AI from the lecture, updated every minute.</p>
+      )}
 
-      {visible.length === 0 && <p>Waiting for the lecture to start...</p>}
+      {shown.length === 0 && (
+        <p className="empty-note">
+          {isLive
+            ? "The AI summary appears about a minute into the lecture."
+            : "No summary for this lecture yet."}
+        </p>
+      )}
 
       <div className="summary-points">
-        {visible.map((point, i) => (
-          <button
-            key={`${point.time}-${i}`}
-            className="summary-point"
-            onClick={() => onSeek?.(toSeconds(point.time))}
-          >
-            <span className="summary-time">{point.time}</span>
-            <span>{point.text}</span>
-          </button>
-        ))}
+        {shown.map((point, i) => {
+          const seconds = point.time ? toSeconds(point.time) : null;
+          return seconds !== null && onSeek ? (
+            <button
+              key={`${point.time}-${i}`}
+              className="summary-point"
+              onClick={() => onSeek(seconds)}
+              title="Jump to this moment"
+            >
+              <span className="summary-time">{point.time}</span>
+              <span>{point.text}</span>
+            </button>
+          ) : (
+            <div key={`${point.time}-${i}`} className="summary-point static">
+              {point.time && <span className="summary-time">{point.time}</span>}
+              <span>{point.text}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

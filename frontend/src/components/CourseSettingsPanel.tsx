@@ -49,12 +49,11 @@ const options: Option[] = [
   },
 ];
 
-// TODO (backend teammate): save these to the server (teacher role only), e.g.
-// PUT /api/courses/:id/settings
 function CourseSettingsPanel({ settings, onChange }: CourseSettingsPanelProps) {
   return (
     <div className="teacher-panel">
       <h3>Course settings</h3>
+      <p className="panel-note">Changes save right away for everyone in this course.</p>
       {options.map((opt) => {
         const disabled = opt.needsAi && !settings.aiHelpEnabled;
         return (
@@ -68,6 +67,7 @@ function CourseSettingsPanel({ settings, onChange }: CourseSettingsPanelProps) {
             </div>
             <input
               type="checkbox"
+              className="switch"
               checked={settings[opt.key]}
               disabled={disabled}
               onChange={(e) =>
