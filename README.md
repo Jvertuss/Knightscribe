@@ -53,43 +53,22 @@ flowchart LR
 
 ## How we got here
 
-None of this worked the first time. Some of what broke along the way:
+Almost nothing worked the first time. We started with Whisper running on the Raspberry Pi, but the Pi was
+too slow for anything but the smallest model, so the transcript lagged 20 seconds or more and barely made sense.
+We moved Whisper to the laptop running the backend and gave the Pi a lighter streaming model for live
+captions. Then the transcripts came back completely empty, and after a lot of debugging it turned out the
+microphone was recording pure silence.
 
-**Whisper was too slow for the Pi.** Our first version ran Whisper on the Raspberry Pi itself. The Pi 4
-could only keep up with the smallest model, so the transcript lagged 20-25 seconds behind and read like
-nonsense. We switched the Pi to a small streaming model (sherpa-onnx) for instant captions, and moved
-Whisper to the laptop running the backend, where it handles a 15-second clip in about a second and a half.
+Getting the Pi and the website to agree took most of a night. Lectures closed themselves the second they
+started because of a timing gap in our sync script, the backend's "go live" endpoint crashed on every call,
+every recording showed up twice, and the browser blocked requests between the website, the backend and the
+Pi until we set up CORS on each one. The text the Pi read off the whiteboard was mostly wrong, so we show
+cleaned-up photos of the board instead, and since browsers couldn't play the Pi's recordings, we join and
+shrink them with FFmpeg first.
 
-**The transcript was empty, and it wasn't the code.** For a while every lecture came back with zero lines.
-When we finally pulled an audio clip off the Pi and looked at it, it was pure silence: every sample was
-zero. The microphone wasn't working. Once it was, transcription worked immediately.
-
-**Lectures ended the moment they started.** The Pi creates a lecture's folder a moment before it reports
-"recording", and our sync script checked during that gap, decided the lecture was over, and closed it on
-the website. We fixed it by only ending a lecture after we've actually seen it record.
-
-**No lecture could go live.** The backend's "go live" endpoint crashed on every call because its request
-model was missing two fields, so the website never showed anything as live. Then every recording showed up
-twice, because the live copy and the final upload used slightly different IDs. And the final upload quietly
-wiped the board photo links and swapped the good transcript for the rough one, so we stopped using it.
-
-**The browser blocked everything.** The website, the backend and the Pi all ran on different addresses, and
-the browser refused requests between them until each one was set up to allow the others (CORS).
-
-**Board text was unreadable.** OCR is fine on slides but bad at handwriting, so the text it pulled off the
-whiteboard was mostly wrong. We stopped using it and show the cleaned-up photos instead.
-
-**Browsers can't play the Pi's recordings.** The Pi saves 5-minute video pieces and the audio as a separate
-file. We join them with FFmpeg and shrink the result to 480p, which makes a 5-minute lecture about 30 MB
-instead of 300, small enough to store in the database.
-
-**The night before the demo.** The teammate with access to our hosting wasn't around, so we moved the
-database and backend onto a laptop. Then the Pi couldn't reach the laptop, because the backend ran inside a
-Docker container behind Windows on a phone hotspot. That took port forwarding and a firewall rule. Later the
-sync script stopped whenever its terminal window got closed, so now the Pi's web server starts it and keeps
-it running.
-
-And the Pi is called `knightcribe.local`, missing an "s". It was a typo early on and it stuck.
+The night before the demo, the teammate with access to our hosting wasn't around, so we moved the database
+and backend onto a laptop and spent a while getting the Pi to reach it through Docker, Windows and a phone
+hotspot. And the Pi is still called `knightcribe.local`, missing an "s". It was a typo early on and it stuck.
 
 ## What's in this repo
 
