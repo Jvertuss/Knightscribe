@@ -27,7 +27,6 @@ flowchart LR
     end
 
     SYNC --> API["FastAPI Backend"]
-    API --> DB[("PostgreSQL")]
     API --> WHISPER["Faster-Whisper"]
     API --> GEMINI["Google Gemini"]
 
@@ -42,7 +41,6 @@ flowchart LR
 | Hardware | Raspberry Pi 4, USB camera, USB microphone |
 | Frontend | React, TypeScript, Vite |
 | Backend | Python, FastAPI, Flask |
-| Database | PostgreSQL |
 | AI & Vision | Faster-Whisper, Sherpa-ONNX, Gemini, OpenCV, NanoDet |
 | Media Processing | FFmpeg |
 
@@ -69,7 +67,7 @@ cp .env.example .env
 
 Add your Gemini API key and configure the environment variables in `backend/.env`.
 
-Initialize the local database and start the server:
+Initialize the local environment and start the server:
 
 ```bash
 bash setup_local_db.sh
@@ -109,7 +107,7 @@ See [`CLASSROOM_DEVICE.md`](CLASSROOM_DEVICE.md) for detailed setup instructions
 ```text
 .
 ├── frontend/             # React + TypeScript website
-├── backend/              # FastAPI backend and database logic
+├── backend/              # FastAPI backend
 ├── knightcribe.cpp       # Camera, audio, and board capture
 ├── web.py                # Pi controls and live streams
 ├── cloud.py              # Backend synchronization
@@ -129,15 +127,13 @@ See [`CLASSROOM_DEVICE.md`](CLASSROOM_DEVICE.md) for detailed setup instructions
 
 ## Credits
 
-Knight Scribe builds on the work of:
-
 - [Whisper](https://github.com/openai/whisper) and [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — transcription
 - [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) — live captions
 - [NanoDet](https://github.com/RangiLyu/nanodet) — person detection
 - [OpenCV](https://opencv.org/) — image processing and perspective correction
 - [Google Gemini](https://ai.google.dev/) — summaries, quizzes, and Q&A
 - [FFmpeg](https://ffmpeg.org/) — recording and media processing
-- [React](https://react.dev/), [Vite](https://vite.dev/), [FastAPI](https://fastapi.tiangolo.com/), [PostgreSQL](https://www.postgresql.org/), and [Flask](https://flask.palletsprojects.com/) — application infrastructure
+- [React](https://react.dev/), [Vite](https://vite.dev/), [FastAPI](https://fastapi.tiangolo.com/), and [Flask](https://flask.palletsprojects.com/) — application infrastructure
 
 Claude Code and other AI coding assistants helped with development and debugging.
 
