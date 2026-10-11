@@ -308,6 +308,7 @@ def search_course_context(
                 "lecture_id": None,
                 "timestamp_seconds": None,
                 "relevance": float(result["relevance"]),
+                "source_id": f"document_chunk:{result['chunk_id']}",
             }
         )
 
@@ -322,6 +323,7 @@ def search_course_context(
                 "lecture_id": result["lecture_id"],
                 "timestamp_seconds": result["start_seconds"],
                 "relevance": float(result["relevance"]),
+                "source_id": f"transcript:{result['segment_id']}",
             }
         )
     
@@ -344,6 +346,7 @@ def search_course_context(
                 "lecture_id": match["lecture_id"],
                 "timestamp_seconds": match["timestamp_seconds"],
                 "relevance": float(match["relevance"]),
+                "source_id": f"board_event:{match['id']}",
             }
         )    
 

@@ -3,3 +3,6 @@ psycopg[binary]
 python-dotenv
 pypdf
 python-pptx
+google-genai
+argon2-cffi
+email-validator

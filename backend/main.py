@@ -1,4 +1,9 @@
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from auth import router as auth_router
+from recordings import router as recordings_router
+from auth import get_current_user
+from permissions import require_document_permission
+
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, Depends
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Literal
@@ -8,12 +13,19 @@ from document_processing import extract_document
 from retrieval import search_course_context
 from search import search_course_memory
 
+from ai_service import generate_ai_answer
+from schemas import AIRequest
+from context_adapter import prepare_ai_context
+
 
 app = FastAPI(
     title="KnightScribe API",
     description="Backend API for the KnightScribe classroom memory system",
     version="0.2.0",
 )
+
+app.include_router(auth_router)
+app.include_router(recordings_router)  # lecture videos stored in the database
 
 app.add_middleware(
     CORSMiddleware,
@@ -1112,11 +1124,27 @@ def get_course_documents(course_id: int):
 def get_course_document(
     course_id: int,
     document_id: int,
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Retrieve one reference document and all
     searchable chunks belonging to it.
     """
+
+    # Verify enrollment and document permission.
+    document_access = require_document_permission(
+        document_id,
+        current_user,
+        "can_view"
+    )
+
+    # Ensure this document belongs to the requested course.
+    if document_access["course_id"] != course_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Reference document not found"
+        )
+
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
