@@ -1,46 +1,23 @@
 # Knight Scribe
 
-**Knight Scribe turns a live lecture into searchable, AI-assisted study material while it is happening.**
-A Raspberry Pi in the classroom records what the professor says, writes and shows. Students follow the
-lecture live (video and sound) or rewatch it later, and get an accurate transcript, photos of the board,
-an AI summary, practice questions and an AI tutor that answers only from their own course material.
+KnightScribe turns live lectures into searchable memory by connecting what professors say, write, and show.
 
-Built in one weekend for a hackathon by Larry Lekin, Gustavo Dizeu, Yoni Ramos and Elionel Jack Vertus.
+We put a Raspberry Pi with a camera and a microphone in the classroom. While the professor teaches, it
+streams the lecture, writes down what's said, and takes a photo of the board every time something new gets
+written on it. Afterwards everything is on the website: the recording, the transcript, the board photos, a
+summary, practice questions, and a place to ask questions about the lecture.
 
----
+Built over one weekend for a hackathon by Larry Lekin, Gustavo Dizeu, Yoni Ramos and Elionel Jack Vertus.
 
-## What it does
+## What you can do with it
 
-**For students**
-- **Watch live**: the classroom camera and microphone, streamed from the Pi, with a live transcript.
-- **Rewatch**: every lecture's recording, stored by the backend and seekable.
-- **Accurate transcript**: speech is transcribed with OpenAI's Whisper; click any line to jump the video there.
-- **Board & slides**: cleaned, high-contrast photos of the whiteboard and slides, taken automatically
-  whenever the writing changes and nobody is standing in front of it. Each photo jumps to its moment.
-- **AI summary**: timestamped key points, rewritten every minute during the lecture and finalized after it.
-- **AI tutor chat**: answers *only* from the professor's documents, the lecture transcript and the lecture
-  video itself, cites its sources, and links each citation to the moment in the video. Modes: Ask, Hint,
-  Explain, Final answer.
-- **Practice quiz**: AI-written multiple-choice questions; answers are checked by the server.
-- **Search** everything said and uploaded in a course, and jump straight to the moment.
-- **Reference material**: download the professor's PDFs and slides.
+Students can watch a lecture live with sound or rewatch it later. Click a line of the transcript, a board
+photo or a point in the summary and the video jumps there. You can search everything said in a course,
+download the professor's slides, take a practice quiz, and ask questions that get answered from the course
+material.
 
-**For professors**
-- Start a live lecture (with a title) from the website; camera status, temperature and storage at a glance.
-- Upload reference material (PDF, PowerPoint, text) that the AI may cite.
-- Course settings that the server enforces: AI on/off, hints, explanations, final answers, practice
-  questions, rewatching recordings.
-- Generate or regenerate the AI summary and quiz for any lecture; write practice questions by hand.
-
-## Core technology
-
-| Technology | What it does in Knight Scribe |
-|---|---|
-| **[Google Gemini](https://ai.google.dev/)** | Everything AI: the tutor chat (it also watches the lecture video), the live and final lecture summaries, and the practice quizzes |
-| **[Whisper](https://github.com/openai/whisper)** (OpenAI, run with [faster-whisper](https://github.com/SYSTRAN/faster-whisper)) | Transcribes the lecture audio accurately |
-| **[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)** (k2-fsa) | The live captions on the Raspberry Pi, about 1-2 seconds behind the speaker |
-| **[NanoDet](https://github.com/RangiLyu/nanodet)** (from the [OpenCV Model Zoo](https://github.com/opencv/opencv_zoo)) | Person detection: a board photo is only taken when nobody is standing in front of the board |
-| **[OpenCV](https://opencv.org/)** | The teaching area: the professor's board or slide area, picked with 4 corners (or found automatically), is straightened with a 4-corner perspective transform, then checked for new writing and cleaned up |
+Professors start the lecture from the website, upload their slides or notes, and choose how much help
+students get.
 
 ## How it works
 
@@ -61,165 +38,130 @@ flowchart LR
   SITE -- "live video and sound" --> WEBPY
 ```
 
-1. **Capture** (`knightcribe.cpp`): one FFmpeg process reads the 720p MJPEG camera and the microphone. It
-   records H.264 video in 5-minute pieces, FLAC audio and 15-second WAV pieces for transcription, and keeps a
-   live picture for the website. OpenCV finds the board, NanoDet checks nobody is in front of it, and the
-   board is photographed (plus a cleaned, saturated copy) when the writing changes. The teaching area is
-   set with 4 corners and straightened by OpenCV's perspective transform. Tesseract reads its text
-   for the Pi's own page.
-2. **Sending** (`cloud.py`, started by `web.py`): creates the lecture on the backend, marks it live with the
-   camera link, uploads each finished audio piece for Whisper, posts board photos, asks for an AI summary
-   every minute, and after the lecture compresses and uploads the recording and asks for the final summary
-   and quiz.
-3. **Backend** (`backend/`): stores everything in PostgreSQL, transcribes audio with Whisper, runs Gemini for
-   the chat, summaries and quizzes (grounded in course material only), stores recordings and documents, and
-   serves search (PostgreSQL full-text search).
-4. **Website** (`frontend/`): student and teacher dashboards. Live video and sound come straight from the Pi.
+1. **Capture** (`knightcribe.cpp`): one FFmpeg process reads the 720p camera and the microphone. It records
+   the video in 5-minute pieces, the audio, and 15-second audio clips for the transcript, and keeps a live
+   picture for the website. The teaching area is marked with 4 corners and straightened with OpenCV's
+   perspective transform. When the writing on it changes and NanoDet sees nobody in the way, the board gets
+   photographed, along with a cleaned-up copy that's easier to read.
+2. **Sending** (`cloud.py`, started by `web.py`): creates the lecture on the backend and marks it live, sends
+   each finished audio clip off to be transcribed, posts the board photos, and refreshes the summary every
+   minute. When the lecture ends it compresses and uploads the recording and asks for the final summary and
+   practice questions.
+3. **Backend** (`backend/`): keeps everything in PostgreSQL, runs Whisper on the audio, uses Gemini for the
+   summaries, practice questions and Q&A, and handles search, recordings and documents.
+4. **Website** (`frontend/`): the student and teacher pages. Live video and sound come straight from the Pi.
 
-## Repository layout
+## How we got here
 
-| Path | What it is |
-|---|---|
-| `frontend/` | The website: React 19 + TypeScript + Vite. `src/backend.ts` talks to the backend; the teacher page also talks to the Pi. |
-| `backend/` | FastAPI backend. `main.py` (core API), `chat.py` (AI tutor), `lecture_video.py` (video for the AI), `ai_generate.py` (summaries, quizzes), `whisper_transcribe.py`, `recordings.py`, `document_files.py`, `search.py` / `retrieval.py`, `ai_service.py` / `prompts.py` / `schemas.py` (Gemini), `auth.py` / `permissions.py`, `schema.sql`. |
-| `knightcribe.cpp`, `CMakeLists.txt` | The Pi's capture program (C++ / OpenCV). |
-| `web.py` | The Pi's control page and live streams (Flask). |
-| `cloud.py` | Sends lectures from the Pi to the backend. |
-| `live_captions.py` | Instant streaming captions on the Pi (sherpa-onnx). |
-| `export.py` | Packages a finished lecture for LLMs / databases. |
-| `pi_start.sh`, `send_code.cmd`, `test_camera.sh`, `bench_capture.py` | Pi setup, deployment from Windows, camera checks. |
-| [`CLASSROOM_DEVICE.md`](CLASSROOM_DEVICE.md) | Full documentation of the classroom device. |
+None of this worked the first time. Some of what broke along the way:
+
+**Whisper was too slow for the Pi.** Our first version ran Whisper on the Raspberry Pi itself. The Pi 4
+could only keep up with the smallest model, so the transcript lagged 20-25 seconds behind and read like
+nonsense. We switched the Pi to a small streaming model (sherpa-onnx) for instant captions, and moved
+Whisper to the laptop running the backend, where it handles a 15-second clip in about a second and a half.
+
+**The transcript was empty, and it wasn't the code.** For a while every lecture came back with zero lines.
+When we finally pulled an audio clip off the Pi and looked at it, it was pure silence: every sample was
+zero. The microphone wasn't working. Once it was, transcription worked immediately.
+
+**Lectures ended the moment they started.** The Pi creates a lecture's folder a moment before it reports
+"recording", and our sync script checked during that gap, decided the lecture was over, and closed it on
+the website. We fixed it by only ending a lecture after we've actually seen it record.
+
+**No lecture could go live.** The backend's "go live" endpoint crashed on every call because its request
+model was missing two fields, so the website never showed anything as live. Then every recording showed up
+twice, because the live copy and the final upload used slightly different IDs. And the final upload quietly
+wiped the board photo links and swapped the good transcript for the rough one, so we stopped using it.
+
+**The browser blocked everything.** The website, the backend and the Pi all ran on different addresses, and
+the browser refused requests between them until each one was set up to allow the others (CORS).
+
+**Board text was unreadable.** OCR is fine on slides but bad at handwriting, so the text it pulled off the
+whiteboard was mostly wrong. We stopped using it and show the cleaned-up photos instead.
+
+**Browsers can't play the Pi's recordings.** The Pi saves 5-minute video pieces and the audio as a separate
+file. We join them with FFmpeg and shrink the result to 480p, which makes a 5-minute lecture about 30 MB
+instead of 300, small enough to store in the database.
+
+**The night before the demo.** The teammate with access to our hosting wasn't around, so we moved the
+database and backend onto a laptop. Then the Pi couldn't reach the laptop, because the backend ran inside a
+Docker container behind Windows on a phone hotspot. That took port forwarding and a firewall rule. Later the
+sync script stopped whenever its terminal window got closed, so now the Pi's web server starts it and keeps
+it running.
+
+And the Pi is called `knightcribe.local`, missing an "s". It was a typo early on and it stuck.
+
+## What's in this repo
+
+- `frontend/` is the website (React, TypeScript, Vite).
+- `backend/` is the server (FastAPI). `main.py` is the core API; the other files cover the Q&A, summaries and
+  quizzes, transcription, recordings, documents and search.
+- At the top level is the classroom device: `knightcribe.cpp` (capture), `web.py` (the Pi's control page and
+  live streams), `cloud.py` (sends lectures to the backend), `live_captions.py`, `export.py`, and the setup
+  scripts `pi_start.sh` and `send_code.cmd`. [`CLASSROOM_DEVICE.md`](CLASSROOM_DEVICE.md) explains the device
+  in detail.
 
 ## Running it
 
-**1. Backend** (Linux or a dev container; Python 3.12+)
+You'll need Python 3.12 or newer, Node.js 22, and a free Gemini API key from
+[Google AI Studio](https://aistudio.google.com/apikey).
+
+Backend (Linux or a dev container):
 ```bash
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt -r requirements-whisper.txt   # Whisper is optional
-cp .env.example .env            # add your Gemini API key
-bash setup_local_db.sh          # once: local PostgreSQL database + demo course
-bash start_local.sh             # API on http://localhost:8000, docs at /docs
+pip install -r requirements.txt -r requirements-whisper.txt
+cp .env.example .env            # put your Gemini key in here
+bash setup_local_db.sh          # first time only: local database and a demo course
+bash start_local.sh             # runs on http://localhost:8000
 ```
-The first start downloads the Whisper model (about 500 MB for `small.en`).
+The first start downloads the Whisper model (around 500 MB), so give it a minute.
 
-**2. Website** (Node.js 22)
+Website:
 ```bash
 cd frontend
 npm install
-npm run dev -- --host 0.0.0.0   # open http://localhost:5173
+npm run dev -- --host 0.0.0.0   # then open http://localhost:5173
 ```
 
-**3. Classroom device**: see [`CLASSROOM_DEVICE.md`](CLASSROOM_DEVICE.md). From Windows, `send_code.cmd`
-copies the code to the Pi, installs what is missing and starts it. To send lectures to your backend, put its
-address in `backend.txt` next to `cloud.py` on the Pi (one line, for example `http://192.168.137.153:8000`).
-The Pi and the laptop must be on the same network.
+Classroom device: from Windows, double-click `send_code.cmd`. It copies the code to the Pi, installs what's
+missing and starts everything. To point the Pi at your backend, put the backend's address in a file called
+`backend.txt` next to `cloud.py` on the Pi (for example `http://192.168.137.153:8000`). The Pi and the laptop
+need to be on the same network. More in [`CLASSROOM_DEVICE.md`](CLASSROOM_DEVICE.md).
 
-### Configuration
-
-| Where | Setting | Meaning |
-|---|---|---|
-| `backend/.env` | `DATABASE_URL` | PostgreSQL connection (set by `start_local.sh` for the local database). |
-| | `GEMINI_API_KEY`, `GEMINI_MODEL` | Google Gemini key and model (default `gemini-3.5-flash-lite`). |
-| | `WHISPER_MODEL`, `WHISPER_THREADS` | Whisper model (default `small.en`) and CPU threads. |
-| `frontend/.env` | `VITE_API_BASE_URL` | The backend's address. |
-| | `VITE_PI_BASE_URL`, `VITE_PI_STREAM_URL` | The Pi's control page and live video. |
-| Pi: `backend.txt` | | The backend's address for `cloud.py` (default: the hosted backend). |
-| Pi: `course.txt` | | Which course new lectures belong to (optional). |
-
-### Main API endpoints
-
-| Area | Endpoints |
-|---|---|
-| Courses & settings | `GET /courses`, `GET/PUT /courses/{id}/settings`, `GET /courses/{id}/lectures` |
-| Lectures (from the Pi) | `POST /lectures`, `PUT /lectures/{id}/stream`, `POST /lectures/{id}/end`, `PUT /lectures/{id}/complete`, `POST /lectures/{id}/board-events` |
-| Transcription | `PUT /lectures/{id}/audio/{n}` (Whisper), `GET /lectures/{id}/audio/pending`, `GET /whisper`, `POST /lectures/{id}/transcript` |
-| Recordings | `PUT/GET /lectures/{id}/recording` (range requests for seeking) |
-| AI | `POST /courses/{id}/ask` (tutor), `POST /lectures/{id}/summary/generate`, `POST /lectures/{id}/quiz/generate` |
-| Study | `GET /lectures/{id}`, `GET /lectures/{id}/board-events`, `GET/POST /lectures/{id}/quiz-questions`, `POST /quiz-questions/{id}/answer`, `GET /courses/{id}/search` |
-| Reference material | `POST /courses/{id}/documents/upload`, `GET /courses/{id}/documents`, `GET /courses/{id}/documents/{doc}/file` |
-
-Interactive documentation: `http://localhost:8000/docs` while the backend runs.
+Settings live in `backend/.env` (database, Gemini key, Whisper model) and `frontend/.env` (where the backend
+and the Pi are). While the backend runs, you can browse the API at `http://localhost:8000/docs`.
 
 ## Team
 
-| | Role |
-|---|---|
-| **Larry Lekin** | Website (student and teacher dashboards) and integration of the website, backend, AI and Pi |
-| **Gustavo Dizeu** | Backend and database (FastAPI, PostgreSQL, lecture ingestion, search, reference material) |
-| **Yoni Ramos** | AI (Gemini service and prompts, permissions, accounts) |
-| **Elionel Jack Vertus** | Classroom device (Raspberry Pi capture, board detection, transcription, live streams) |
+- **Larry Lekin**: the website, and tying the website, backend and Pi together
+- **Gustavo Dizeu**: the backend and database
+- **Yoni Ramos**: the Gemini setup and prompts, and accounts
+- **Elionel Jack Vertus**: the classroom device (camera, board detection, captions, live streams)
 
-## Credits and acknowledgements
+## Credits
 
-Knight Scribe is built on the work of many open-source projects and services. Thank you to all of them.
-Each one is used under its own license; see the linked projects.
+Knight Scribe stands on a lot of other people's work. Thank you to everyone behind these projects. Each one
+is used under its own license.
 
-### AI models and AI services
-| What | Used for |
-|---|---|
-| [Google Gemini API](https://ai.google.dev/) (model `gemini-3.5-flash-lite`) and [Google AI Studio](https://aistudio.google.com/) | Everything AI-related: the tutor chat (including watching the lecture video), lecture summaries, practice quizzes |
-| [Google Gen AI Python SDK](https://github.com/googleapis/python-genai) (`google-genai`) | Calling Gemini, uploading lecture videos to Gemini's file storage |
-| [Whisper](https://github.com/openai/whisper) by OpenAI (model `small.en`) | Lecture transcription |
-| [faster-whisper](https://github.com/SYSTRAN/faster-whisper) by SYSTRAN, on [CTranslate2](https://github.com/OpenNMT/CTranslate2) by OpenNMT | Running Whisper fast on a laptop CPU |
-| [Silero VAD](https://github.com/snakers4/silero-vad) (bundled with faster-whisper) | Skipping silence before transcription |
-| [Hugging Face Hub](https://huggingface.co/) | Downloading the Whisper model files |
-| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) by k2-fsa (Next-gen Kaldi), streaming Zipformer English model `sherpa-onnx-streaming-zipformer-en-20M-2023-02-17` | Live captions on the Raspberry Pi |
-| [ONNX Runtime](https://onnxruntime.ai/) | Runs the sherpa-onnx and Silero VAD models |
-| [NanoDet](https://github.com/RangiLyu/nanodet) from the [OpenCV Model Zoo](https://github.com/opencv/opencv_zoo) | Person detection (nobody in front of the board before a photo is taken) |
-| [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) | Reading board and slide text on the Pi |
+**The main pieces**
+- [Whisper](https://github.com/openai/whisper) by OpenAI (`small.en`), run with [faster-whisper](https://github.com/SYSTRAN/faster-whisper) by SYSTRAN: the transcript
+- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) by k2-fsa, with the `sherpa-onnx-streaming-zipformer-en-20M-2023-02-17` model: live captions on the Pi
+- [NanoDet](https://github.com/RangiLyu/nanodet), from the [OpenCV Model Zoo](https://github.com/opencv/opencv_zoo): person detection
+- [OpenCV](https://opencv.org/): the teaching area (4 corners and the perspective transform), spotting new writing and cleaning up the board photos
+- [Google Gemini](https://ai.google.dev/) (`gemini-3.5-flash-lite`) with the [Google Gen AI SDK](https://github.com/googleapis/python-genai) and [Google AI Studio](https://aistudio.google.com/): summaries, practice questions and Q&A
 
-### Website
-| What | Used for |
-|---|---|
-| [React](https://react.dev/) 19 | User interface |
-| [TypeScript](https://www.typescriptlang.org/) | Typed JavaScript |
-| [Vite](https://vite.dev/) with [Rolldown](https://rolldown.rs/) and [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react) | Development server and build |
-| [React Compiler](https://react.dev/learn/react-compiler) (`babel-plugin-react-compiler`), [Babel](https://babeljs.io/) | Automatic React optimizations |
-| [ESLint](https://eslint.org/), [typescript-eslint](https://typescript-eslint.io/), `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`, `globals` | Code checks |
-| [Node.js](https://nodejs.org/) and [npm](https://www.npmjs.com/) | JavaScript runtime and packages |
-| [Google Fonts](https://fonts.google.com/): [Sora](https://fonts.google.com/specimen/Sora) and [Special Elite](https://fonts.google.com/specimen/Special+Elite) | Typography |
-| Web platform: Web Audio API, Fetch streams, MJPEG in `<img>` | Live sound and live video in the browser |
-| Vite's project template | Starting point of the frontend (favicon) |
+**Also used**
+- Speech and models: [CTranslate2](https://github.com/OpenNMT/CTranslate2), [Silero VAD](https://github.com/snakers4/silero-vad), [ONNX Runtime](https://onnxruntime.ai/), [Hugging Face](https://huggingface.co/) (model downloads), [Tesseract OCR](https://github.com/tesseract-ocr/tesseract)
+- Website: [React](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vite.dev/) with [Rolldown](https://rolldown.rs/) and [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react) (started from Vite's template), the [React Compiler](https://react.dev/learn/react-compiler), [Babel](https://babeljs.io/), [ESLint](https://eslint.org/) with [typescript-eslint](https://typescript-eslint.io/), [Node.js](https://nodejs.org/), [npm](https://www.npmjs.com/), and the [Sora](https://fonts.google.com/specimen/Sora) and [Special Elite](https://fonts.google.com/specimen/Special+Elite) fonts from [Google Fonts](https://fonts.google.com/)
+- Backend: [FastAPI](https://fastapi.tiangolo.com/), [Starlette](https://www.starlette.io/), [Pydantic](https://docs.pydantic.dev/), [Uvicorn](https://www.uvicorn.org/), [PostgreSQL](https://www.postgresql.org/), [psycopg 3](https://www.psycopg.org/), [pypdf](https://github.com/py-pdf/pypdf), [python-pptx](https://github.com/scanny/python-pptx), [python-dotenv](https://github.com/theskumar/python-dotenv), [argon2-cffi](https://github.com/hynek/argon2-cffi), [email-validator](https://github.com/JoshData/python-email-validator), [NumPy](https://numpy.org/)
+- Hosting during development: [Neon](https://neon.tech/) (database) and [Render](https://render.com/) (backend)
+- Classroom device: a [Raspberry Pi 4](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/) (4 GB) with Raspberry Pi OS, a USB camera and microphone, [FFmpeg](https://ffmpeg.org/), [Flask](https://flask.palletsprojects.com/), [Video4Linux](https://www.linuxtv.org/), ALSA, [CMake](https://cmake.org/), GCC, and [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) for sharing the camera while developing
+- Tools: [GitHub](https://github.com/), [Visual Studio Code](https://code.visualstudio.com/), [Dev Containers](https://containers.dev/), [Docker](https://www.docker.com/), and [Claude Code](https://www.anthropic.com/claude-code) by Anthropic plus other AI coding assistants, which helped us write, test and debug parts of the code
 
-### Backend
-| What | Used for |
-|---|---|
-| [FastAPI](https://fastapi.tiangolo.com/) with [Starlette](https://www.starlette.io/), [Pydantic](https://docs.pydantic.dev/) and [Uvicorn](https://www.uvicorn.org/) | The web API |
-| [PostgreSQL](https://www.postgresql.org/) (full-text search with `tsvector`) | Database and search |
-| [Neon](https://neon.tech/) | Hosted PostgreSQL during development |
-| [psycopg 3](https://www.psycopg.org/) | PostgreSQL driver |
-| [python-dotenv](https://github.com/theskumar/python-dotenv) | Settings from `.env` |
-| [pypdf](https://github.com/py-pdf/pypdf) and [python-pptx](https://github.com/scanny/python-pptx) | Reading uploaded PDFs and PowerPoints |
-| [argon2-cffi](https://github.com/hynek/argon2-cffi) and [email-validator](https://github.com/JoshData/python-email-validator) | Accounts (password hashing, email checks) |
-| [NumPy](https://numpy.org/) | Audio samples for Whisper (PyAV and ONNX Runtime come with faster-whisper) |
-| [Render](https://render.com/) | Hosting the backend during development |
-
-### Classroom device
-| What | Used for |
-|---|---|
-| [Raspberry Pi 4](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/) (4 GB) with Raspberry Pi OS (Debian) | The classroom computer |
-| USB MJPEG camera (720p30) and USB microphone | Capture |
-| [OpenCV](https://opencv.org/) (C++ and Python) | The teaching area: 4-corner selection and perspective transform that straightens the board or slides; change detection, image cleanup, running NanoDet (DNN module), live picture resizing |
-| [FFmpeg](https://ffmpeg.org/) (V4L2 and ALSA input, `h264_v4l2m2m` hardware encoder, libx264, AAC, FLAC) | Recording, audio pieces, live picture, compressing recordings |
-| [Video4Linux](https://www.linuxtv.org/) (`v4l-utils`) and ALSA | Camera and microphone access |
-| [Flask](https://flask.palletsprojects.com/) | The Pi's control page and live streams |
-| [CMake](https://cmake.org/) and GCC | Building the capture program |
-| mDNS (`knightcribe.local`) and Windows Mobile Hotspot | Finding the Pi on the classroom network |
-| [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) | Sharing the live camera during development |
-
-### Development tools
-| What | Used for |
-|---|---|
-| [GitHub](https://github.com/) | Code hosting and collaboration |
-| [Visual Studio Code](https://code.visualstudio.com/) with [Dev Containers](https://containers.dev/) and [Docker](https://www.docker.com/) (Microsoft dev container images) | Development environment |
-| [Claude Code](https://www.anthropic.com/claude-code) by Anthropic, and other AI coding assistants | Help writing, testing and debugging parts of the code |
-
-### Branding
-Knight Scribe uses a black and gold color scheme inspired by the University of Central Florida. It is a
-student hackathon project and is not affiliated with or endorsed by UCF.
+The black and gold colors are a nod to UCF. Knight Scribe is a student hackathon project and isn't
+affiliated with or endorsed by the University of Central Florida.
 
 ## License
 
-Knight Scribe is released under the MIT License (see [`LICENSE`](LICENSE)). Third-party software, models,
-fonts and services keep their own licenses and terms.
+MIT (see [`LICENSE`](LICENSE)). Everything listed under Credits keeps its own license.
