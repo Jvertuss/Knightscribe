@@ -107,6 +107,16 @@ class LectureStreamUpdate(BaseModel):
         "error"
     ]
 
+    stream_protocol: Literal[
+        "hls",
+        "webrtc",
+        "mjpeg",
+        "other"
+    ] | None = None
+
+    live_stream_url: str | None = None
+
+
 class HardwareTranscriptSegment(BaseModel):
     start: float
     end: float
