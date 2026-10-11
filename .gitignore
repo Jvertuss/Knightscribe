@@ -11,3 +11,15 @@ __pycache__/
 # build output and files the program creates while running
 build/
 lectures/
+models/
+live.jpg*
+debug.jpg*
+*.tmp.jpg
+status.json*
+transcribe_status.json*
+live.json*
+config.json*
+
+# editor and Python leftovers; .vscode/sftp.json holds the Pi's address and username
+.vscode/
+autoselect.*
