@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field
 
 
 class AIMode(str, Enum):
+    # the student chat buttons: Ask, Hint, Explain, Final answer
+    ASK = "ask"
+    HINT = "hint"
+    ANSWER = "answer"
     EXPLAIN = "explain"
     SUMMARIZE = "summarize"
     STUDY_GUIDE = "study_guide"

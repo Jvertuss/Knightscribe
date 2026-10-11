@@ -32,6 +32,33 @@ OUTPUT RULES:
 
 
 MODE_INSTRUCTIONS = {
+    AIMode.ASK: """
+ASK MODE:
+- Answer the student's question directly in a few sentences.
+- When the answer comes from a lecture, say roughly when
+  it was covered (for example "around 3:15 in the lecture").
+- If the context only partly answers it, say which part
+  the course material does not cover.
+""",
+
+    AIMode.HINT: """
+HINT MODE:
+- Do NOT give the final answer or the full solution.
+- Give one helpful nudge: the key idea, formula or step
+  the student should look at next.
+- Point to where it appears in the course material
+  (for example "the board notes around 0:45").
+- End with a short guiding question for the student.
+""",
+
+    AIMode.ANSWER: """
+FINAL ANSWER MODE:
+- Give the complete answer to the question.
+- Show the reasoning or worked steps that lead to it,
+  using only methods that appear in the context.
+- State the final answer clearly on its own line.
+""",
+
     AIMode.EXPLAIN: """
 EXPLAIN MODE:
 - Explain the requested concept clearly.

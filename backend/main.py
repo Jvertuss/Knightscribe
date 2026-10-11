@@ -1,5 +1,7 @@
 from auth import router as auth_router
 from recordings import router as recordings_router
+from chat import router as chat_router
+from ai_generate import router as ai_generate_router
 from auth import get_current_user
 from permissions import require_document_permission
 
@@ -26,6 +28,8 @@ app = FastAPI(
 
 app.include_router(auth_router)
 app.include_router(recordings_router)  # lecture videos stored in the database
+app.include_router(chat_router)  # the student chatbot: POST /courses/{course_id}/ask
+app.include_router(ai_generate_router)  # AI lecture summaries and practice quizzes
 
 app.add_middleware(
     CORSMiddleware,
