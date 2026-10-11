@@ -25,3 +25,9 @@ config.json*
 # editor and Python leftovers; .vscode/sftp.json holds the Pi's address and username
 .vscode/
 autoselect.*
+
+# files cloud.py writes or reads on the Pi
+cloud.log
+cloud_status.json*
+backend.txt
+next_lecture.json

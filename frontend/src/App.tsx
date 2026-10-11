@@ -5,6 +5,7 @@ import StartScreen from "./pages/StartScreen";
 import CourseSelect from "./pages/CourseSelect";
 import StudentDashboard from "./pages/StudentDashboard";
 import TeacherDashboard from "./pages/TeacherDashboard";
+import { startPolling } from "./polling";
 import {
   fetchDocuments,
   fetchLectures,
@@ -15,8 +16,7 @@ import {
 } from "./backend";
 import {
   courses as initialCourses,
-  lectures as initialLectures,
-  references as initialReferences,
+  references as mockReferences,
   defaultSettings,
 } from "./data/mockData";
 import type {
@@ -46,9 +46,11 @@ function App() {
   const [role, setRole] = useState<Role | null>(null);
   const [courseId, setCourseId] = useState<number | null>(null);
   const [courses, setCourses] = useState<Course[]>(initialCourses);
-  const [lectures, setLectures] = useState<Lecture[]>(initialLectures);
-  const [references, setReferences] =
-    useState<ReferenceMaterial[]>(initialReferences);
+  // Empty until the backend answers (no flash of mock data); backend.ts falls
+  // back to the mock lectures / references if it can't be reached.
+  const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [lecturesLoaded, setLecturesLoaded] = useState(false);
+  const [references, setReferences] = useState<ReferenceMaterial[]>([]);
   const [settings, setSettings] = useState<CourseSettings>(defaultSettings);
 
   // Load courses, then the lectures of every course (the course page shows
@@ -61,6 +63,7 @@ function App() {
       setCourses(list);
       // keep any lecture the teacher added while this was loading
       setLectures((prev) => [...perCourse.flat(), ...prev.filter((l) => l.local)]);
+      setLecturesLoaded(true);
     });
     return () => {
       cancelled = true;
@@ -75,20 +78,13 @@ function App() {
     if (courseId === null) return;
     const id = courseId;
     let cancelled = false;
-    let timer: number | undefined;
-    async function refresh() {
-      try {
-        const fresh = await fetchLectures(id);
-        if (!cancelled) setLectures((prev) => mergeLectures(prev, fresh, id));
-      } catch (err) {
-        console.warn("refreshing lectures failed, keeping the current ones:", err);
-      }
-      if (!cancelled) timer = window.setTimeout(refresh, REFRESH_MS);
-    }
-    refresh();
+    const stop = startPolling(async () => {
+      const fresh = await fetchLectures(id);
+      if (!cancelled) setLectures((prev) => mergeLectures(prev, fresh, id));
+    }, REFRESH_MS);
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      stop();
     };
   }, [courseId, refreshKey]);
 
@@ -102,7 +98,13 @@ function App() {
       .then((docs) => {
         if (!cancelled) setReferences((prev) => [...prev.filter((r) => r.courseId !== id), ...docs]);
       })
-      .catch((err) => console.warn("loading reference documents failed, keeping the current ones:", err));
+      .catch((err) => {
+        console.warn("loading reference documents failed, using the examples:", err);
+        if (!cancelled)
+          setReferences((prev) =>
+            prev.some((r) => r.courseId === id) ? prev : [...prev, ...mockReferences.filter((r) => r.courseId === id)]
+          );
+      });
     return () => {
       cancelled = true;
     };
@@ -149,6 +151,7 @@ function App() {
           role={role}
           courses={courses}
           lectures={lectures}
+          loading={!lecturesLoaded}
           onSelect={setCourseId}
           onBack={() => setRole(null)}
         />
@@ -178,6 +181,7 @@ function App() {
         <StudentDashboard
           course={course}
           lectures={visibleLectures}
+          loading={!lecturesLoaded}
           references={courseReferences}
           settings={settings}
         />
@@ -185,6 +189,7 @@ function App() {
         <TeacherDashboard
           course={course}
           lectures={courseLectures}
+          loading={!lecturesLoaded}
           setLectures={setLectures}
           references={courseReferences}
           setReferences={setReferences}

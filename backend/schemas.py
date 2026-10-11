@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field
 
 
 class AIMode(str, Enum):
+    # the student chat buttons: Ask, Hint, Explain, Final answer
+    ASK = "ask"
+    HINT = "hint"
+    ANSWER = "answer"
     EXPLAIN = "explain"
     SUMMARIZE = "summarize"
     STUDY_GUIDE = "study_guide"
@@ -16,6 +20,7 @@ class SourceType(str, Enum):
     DOCUMENT = "document"
     TRANSCRIPT = "transcript"
     BOARD_EVENT = "board_event"
+    VIDEO = "video"  # the lecture's recording, given to the model as video
 
 
 class ContextItem(BaseModel):

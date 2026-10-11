@@ -2115,3 +2115,120 @@ body:has(.start-screen.is-leaving) .letter-bg {
   margin: 0;
   font-size: 0.85rem;
 }
+
+/* board / slide snapshot, opened large */
+.snapshot-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+  padding: 0.9rem;
+  background: var(--bg);
+  border: 1px solid var(--gold);
+  border-radius: 10px;
+}
+
+.snapshot-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.snapshot-head strong {
+  display: block;
+  color: var(--text-h);
+  font-family: var(--display);
+}
+
+.snapshot-meta {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.snapshot-close {
+  padding: 0 0.4rem;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.snapshot-close:hover {
+  color: var(--gold);
+}
+
+.snapshot-large {
+  display: block;
+  width: 100%;
+  max-height: 520px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.snapshot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.snapshot-actions .teacher-btn.primary {
+  margin-top: 0;
+}
+
+.snapshot-nav {
+  display: inline-flex;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.reference-download {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  color: var(--gold);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.reference-download:hover {
+  background: var(--gold-soft);
+}
+
+a.teacher-btn {
+  text-decoration: none;
+}
+
+/* transcript lines that jump the recording */
+.transcript-line {
+  display: block;
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  line-height: 1.55;
+  text-align: left;
+  cursor: pointer;
+}
+
+.transcript-line:hover {
+  background: var(--gold-soft);
+}
+
+/* search: the matched words */
+.search-content mark {
+  padding: 0 0.1em;
+  background: var(--gold-soft);
+  border-radius: 3px;
+  color: var(--gold);
+  font-weight: 600;
+}

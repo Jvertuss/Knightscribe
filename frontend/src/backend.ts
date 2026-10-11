@@ -150,7 +150,11 @@ function videoUrlFor(d: ApiLecture, isLive: boolean): string {
   // Finished lectures only ever show the saved recording, never the camera.
   const hasRecording =
     !!d.recording_url && !d.recording_url.includes("example.com");
-  return hasRecording ? (d.recording_url as string) : "";
+  if (!hasRecording) return "";
+  // A recording stored on our backend: play it from the address this site uses,
+  // not the one the Pi saved (e.g. a laptop IP that can change).
+  const stored = (d.recording_url as string).match(/\/lectures\/([^/]+)\/recording$/);
+  return stored && BASE ? `${BASE}/lectures/${stored[1]}/recording` : (d.recording_url as string);
 }
 
 // The AI stores summaries as JSON: [{"seconds": 75, "text": "..."}]. Older ones
@@ -202,13 +206,42 @@ function toLecture(d: ApiLecture): Lecture {
   };
 }
 
+// What the short lecture list says about each lecture
+interface ApiListEntry {
+  id: string;
+  status: string;
+  ended_at: string | null;
+  live_summary: string | null;
+  final_summary: string | null;
+}
+
+// Each lecture's last full details. A refresh only reloads a lecture that is
+// live or whose list entry changed; every FULL_EVERY_MS it reloads all of them,
+// which also catches changes the list doesn't show (like a new recording link).
+const detailCache = new Map<string, { sig: string; data: ApiLecture }>();
+const lastFullLoad = new Map<number, number>();
+const FULL_EVERY_MS = 30000;
+const signature = (l: ApiListEntry) =>
+  JSON.stringify([l.status, l.ended_at, l.live_summary, l.final_summary]);
+
 // The backend's lectures for a course. Throws if the backend can't be reached,
 // so a refresh can keep what is on screen instead of switching to mock data.
 export async function fetchLectures(courseId: number): Promise<Lecture[]> {
-  const list = await get<{ id: string }[]>(`/courses/${courseId}/lectures`);
+  const list = await get<ApiListEntry[]>(`/courses/${courseId}/lectures`);
+  const full = Date.now() - (lastFullLoad.get(courseId) ?? 0) > FULL_EVERY_MS;
+  if (full) lastFullLoad.set(courseId, Date.now());
+
   // one broken lecture shouldn't hide all the others
   const results = await Promise.allSettled(
-    list.map((l) => get<ApiLecture>(`/lectures/${l.id}`))
+    list.map(async (entry) => {
+      const sig = signature(entry);
+      const cached = detailCache.get(entry.id);
+      const live = entry.status === "recording" || cached?.data.stream_status === "live";
+      if (!full && cached && cached.sig === sig && !live) return cached.data;
+      const data = await get<ApiLecture>(`/lectures/${entry.id}`);
+      detailCache.set(entry.id, { sig, data });
+      return data;
+    })
   );
   return results
     .filter((r) => r.status === "fulfilled")
@@ -281,7 +314,7 @@ export async function saveSettings(
 // ---- the AI chatbot (answers only from this course's material) ----
 interface ApiSource {
   source_id: string;
-  source_type: "document" | "transcript" | "board_event";
+  source_type: "document" | "transcript" | "board_event" | "video";
   title: string;
   source_location: string | null;
   lecture_id: string | null;
@@ -347,6 +380,8 @@ const toReference = (d: ApiDocument): ReferenceMaterial => ({
   title: d.title,
   type: DOC_TYPE[d.document_type] ?? "article",
   source: d.original_filename ? `Uploaded: ${d.original_filename}` : "Uploaded by the professor",
+  // the original file (the server answers "download")
+  url: `${BASE}/courses/${d.course_id}/documents/${d.id}/file`,
 });
 
 // Throws if the backend can't be reached, so the caller can keep what it has.
@@ -415,6 +450,9 @@ export async function createQuizQuestion(
 
 // ---- board / slide snapshots, shown as photo chapters ----
 // Only the photos are used: the Pi's OCR misreads the board, so its text is ignored.
+// The Pi saves a cleaned copy next to every photo: snap_0018.jpg -> snap_0018_clean.jpg.
+// For whiteboards it has a white background and saturated marker colors (easy to
+// read); for slides it is the same picture.
 interface ApiBoardEvent {
   id: number;
   timestamp_seconds: number;
@@ -426,13 +464,19 @@ export async function fetchChapters(lectureId: string, frontendLectureId: number
   const list = await get<ApiBoardEvent[]>(`/lectures/${lectureId}/board-events`);
   return list
     .filter((e) => e.image_url)
-    .map((e) => ({
-      id: e.id,
-      lectureId: frontendLectureId,
-      startSeconds: Math.floor(e.timestamp_seconds),
-      title: e.event_type === "slide" ? "Slide" : "Board",
-      snapshotUrl: e.image_url as string,
-    }));
+    .map((e) => {
+      const url = e.image_url as string;
+      const slide = e.event_type === "slide";
+      return {
+        id: e.id,
+        lectureId: frontendLectureId,
+        startSeconds: Math.floor(e.timestamp_seconds),
+        title: slide ? "Slide" : "Board",
+        kind: slide ? "slide" : "board",
+        snapshotUrl: url.replace(/\.jpg$/i, "_clean.jpg"),
+        originalUrl: slide ? undefined : url, // a slide's original is the same picture
+      };
+    });
 }
 
 // ---- search across the course ----

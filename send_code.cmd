@@ -28,7 +28,7 @@ ssh %SSH_OPTS% %PI_USER%@%PI_HOST% "mkdir -p %PI_DIR%"
 if errorlevel 1 goto fail
 echo.
 echo [2/3] Copying code to the Pi - type the Pi password again:
-scp %SSH_OPTS% knightcribe.cpp web.py transcribe.py live_captions.py export.py CMakeLists.txt README.md .gitignore pi_start.sh test_camera.sh %PI_USER%@%PI_HOST%:%PI_DIR%/
+scp %SSH_OPTS% knightcribe.cpp web.py live_captions.py export.py cloud.py CMakeLists.txt README.md .gitignore pi_start.sh test_camera.sh %PI_USER%@%PI_HOST%:%PI_DIR%/
 if errorlevel 1 goto fail
 echo.
 echo [3/3] Building and starting on the Pi - type the Pi password once more:

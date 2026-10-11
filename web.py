@@ -4,23 +4,42 @@
 # debug view, the latest saved snapshot (original or cleaned) and the whiteboard text it read.
 # It talks to the C++ program only through files: config.json (settings, written here, read there)
 # and status.json / debug.jpg / live.jpg (written there, read here).
-import glob, json, logging, os, re, shutil, signal, subprocess, sys, threading, time
+import collections, glob, json, logging, os, re, shutil, signal, socket, subprocess, sys, threading, time
 from flask import Flask, Response, jsonify, request, send_file, send_from_directory
+try:  # used only to make the live picture smaller; without it the full-size picture is sent
+    import cv2
+    import numpy as np
+except ImportError:
+    cv2 = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 path = lambda name: os.path.join(HERE, name)
 LECTURES = path("lectures")
 DEFAULTS = {"corners": [], "exposure": 0, "mic": "plughw:CARD=Microphone", "surface": "auto"}
-# live transcription runs in the venv that has faster-whisper installed (pi_start.sh sets it up)
+# live transcription (live_captions.py, sherpa-onnx streaming) runs in the venv that pi_start.sh sets up
 VENV_PYTHON = os.path.join(HERE, "..", ".venv", "bin", "python")
 app = Flask(__name__)
 logging.getLogger("werkzeug").setLevel(logging.WARNING)  # don't print every page refresh
+# the Knight Scribe website (npm run dev on a laptop) may call this page: status, start / stop recording
+FRONTEND_ORIGINS = {"http://localhost:5173", "http://127.0.0.1:5173"}
+
+
+@app.after_request
+def allow_frontend(response):  # CORS headers, so the browser lets that website read our replies
+    origin = request.headers.get("Origin")
+    if origin in FRONTEND_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Vary"] = "Origin"
+    return response
 proc, mode, lock = None, "preview", threading.Lock()
 last_launch = 0.0  # when the C++ program was last started
 # helper programs that run in the venv: name -> [process, when we last tried to start it]
-helpers = {"transcribe.py": [None, 0], "live_captions.py": [None, 0]}
+helpers = {"live_captions.py": [None, 0]}
 LIVE_JPG = "/dev/shm/knightscribe_live.jpg" if os.path.isdir("/dev/shm") else path("live.jpg")  # knightcribe.cpp writes it
-STREAM_FPS = 30  # lower this (e.g. 15) if the Wi-Fi link to the page can not carry the live video
+STREAM_FPS = 15  # pictures per second sent to every viewer; lower it (e.g. 10) if the link still can not carry the live video
+STREAM_QUALITY = 55  # JPEG quality of the live picture (the picture is also halved in size: 1280x720 -> 640x360)
 LIVE = "/dev/shm/knightcribe_live.json" if os.path.isdir("/dev/shm") else path("live.json")  # live_captions.py writes it
 
 
@@ -104,7 +123,7 @@ def stop_program():  # Ctrl+C to the program, which passes it on to its ffmpeg s
     stop_leftover_ffmpeg()
 
 
-def ensure_helpers():  # keep the transcription helpers running (retry each at most every 10 s)
+def ensure_helpers():  # keep the transcription helper running (retry at most every 10 s)
     for name, entry in helpers.items():
         proc_, tried = entry
         if (proc_ and proc_.poll() is None) or time.time() - tried < 10:
@@ -138,7 +157,7 @@ def stop_helpers():
         entry[0], entry[1] = None, 0  # ready to start again with the next recording
 
 
-def manage_helpers(recording):  # speech helpers run only for a recording, plus the time to finish its last pieces
+def manage_helpers(recording):  # the speech helper runs only for a recording, plus a moment to finish
     global last_recording, export_pending
     now = time.time()
     if recording:
@@ -146,23 +165,29 @@ def manage_helpers(recording):  # speech helpers run only for a recording, plus 
         export_pending = newest_lecture()
         ensure_helpers()
         return
-    if now - last_recording < 40:
-        return  # the last audio pieces and grey draft captions are still being finished
+    if now - last_recording < 15:
+        return  # the last sentence is still being saved (the streaming model needs ~3 s of silence)
     if any(helper_running(name) for name in helpers):
-        try:
-            with open(path("transcribe_status.json")) as f:
-                tx = json.load(f)
-        except (OSError, ValueError):
-            tx = {}
-        if not ((tx.get("state") == "idle" and not tx.get("backlog")) or now - last_recording > 600):
-            return  # Whisper is still working through the last pieces
-        stop_helpers()  # frees the memory and CPU that Whisper and the live captions were using
+        stop_helpers()  # frees the memory and CPU the speech model was using
     if export_pending:  # the transcript is complete now: package the lecture automatically
         name, export_pending = export_pending, None
         try:
             export_lecture(name)
         except (OSError, subprocess.SubprocessError):
             pass
+
+
+cloud = [None, 0.0]  # cloud.py: [process, when we last tried to start it]
+
+
+def ensure_cloud():  # cloud.py sends lectures to the website: keep it running all the time (retry every 10 s)
+    proc_, tried = cloud
+    if (proc_ and proc_.poll() is None) or time.time() - tried < 10 or not os.path.exists(path("cloud.py")):
+        return
+    cloud[1] = time.time()
+    log = open(path("cloud.log"), "a")  # what it prints: tail -f cloud.log
+    cloud[0] = subprocess.Popen([sys.executable, path("cloud.py")], cwd=HERE, start_new_session=True,
+                                stdout=log, stderr=subprocess.STDOUT)
 
 
 def supervise():  # runs in the background, whether or not anyone has the page open
@@ -182,6 +207,7 @@ def supervise():  # runs in the background, whether or not anyone has the page o
                 print("capture program stopped (exit code %s) - starting it again (%s)" % (proc.returncode, again), flush=True)
                 launch(again)
             manage_helpers(mode == "record" and running())
+            ensure_cloud()
         except Exception as error:  # the supervisor must never stop
             print("supervisor:", error, flush=True)
 
@@ -257,24 +283,104 @@ def index():
     return PAGE
 
 
+def shrink(data):  # a smaller picture is far less data for the Wi-Fi and the tunnel; falls back to the original
+    if cv2 is None:
+        return data
+    try:
+        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_REDUCED_COLOR_2)  # decodes at half size
+        if img is None:
+            return data
+        ok, out = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, STREAM_QUALITY])
+        return out.tobytes() if ok else data
+    except Exception:
+        return data
+
+
+stream_frame = {"data": None, "n": 0}  # the newest live picture, shared by every viewer
+stream_cond = threading.Condition()
+stream_viewers = [0]
+
+
+def stream_reader():  # one thread reads the live picture for everybody, and only while somebody is watching
+    last, sent = None, 0.0
+    while True:
+        if stream_viewers[0] <= 0:
+            time.sleep(0.2)
+            continue
+        try:
+            stamp = os.stat(LIVE_JPG).st_mtime_ns
+            # 0.8: a picture that arrives a little early is still sent (an exact 1/STREAM_FPS limit
+            # would beat against the camera's own timing and drop pictures)
+            if stamp != last and time.time() - sent >= 0.8 / STREAM_FPS:
+                last, sent = stamp, time.time()
+                with open(LIVE_JPG, "rb") as f:
+                    data = shrink(f.read())
+                with stream_cond:
+                    stream_frame["data"] = data
+                    stream_frame["n"] += 1
+                    stream_cond.notify_all()
+        except OSError:
+            pass
+        time.sleep(0.01)
+
+
+threading.Thread(target=stream_reader, daemon=True).start()
+
+
 @app.get("/video")
-def video():  # live video: sends the newest picture every time ffmpeg replaces it (up to STREAM_FPS a second)
+def video():  # live video: every viewer gets the shared newest picture (up to STREAM_FPS a second)
     def frames():
-        last, sent = None, 0.0
-        while True:
-            try:
-                stamp = os.stat(LIVE_JPG).st_mtime_ns
-                # 0.8: a picture that arrives a little early is still sent (an exact 1/STREAM_FPS limit
-                # would beat against the camera's own timing and drop about every fifth picture)
-                if stamp != last and time.time() - sent >= 0.8 / STREAM_FPS:
-                    last, sent = stamp, time.time()
-                    with open(LIVE_JPG, "rb") as f:
-                        data = f.read()
+        seen = 0
+        stream_viewers[0] += 1
+        try:
+            while True:
+                with stream_cond:
+                    stream_cond.wait_for(lambda: stream_frame["n"] != seen, timeout=2)
+                    data, seen = stream_frame["data"], stream_frame["n"]
+                if data:
                     yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + data + b"\r\n"
-            except OSError:
-                pass
-            time.sleep(0.005)
+        finally:
+            stream_viewers[0] -= 1
     return Response(frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+AUDIO_PORT = 5006  # knightcribe.cpp sends the live microphone here while recording (must match its udp:// output)
+audio_packets = collections.deque(maxlen=50)  # (number, raw sound): the last ~2 seconds, shared by every listener
+audio_cond = threading.Condition()
+audio_count = [0]
+
+
+def audio_reader():  # one thread receives the live sound for everybody (16 kHz mono 16-bit, 40 ms per packet)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind(("127.0.0.1", AUDIO_PORT))
+    except OSError as error:
+        print("Live sound is OFF: could not open UDP port %d (%s)" % (AUDIO_PORT, error), flush=True)
+        return
+    while True:
+        data = sock.recv(65536)
+        with audio_cond:
+            audio_count[0] += 1
+            audio_packets.append((audio_count[0], data))
+            audio_cond.notify_all()
+
+
+threading.Thread(target=audio_reader, daemon=True).start()
+
+
+@app.get("/audio")
+def audio():  # live sound while recording: raw 16 kHz mono 16-bit PCM; the website plays it with Web Audio
+    def packets():
+        with audio_cond:
+            seen = audio_count[0]  # start with the newest sound, not the last 2 seconds
+        while True:
+            with audio_cond:
+                audio_cond.wait_for(lambda: audio_count[0] != seen, timeout=2)
+                fresh = [data for n, data in audio_packets if n > seen]
+                seen = audio_count[0]
+            if fresh:
+                yield b"".join(fresh)
+    return Response(packets(), mimetype="application/octet-stream", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/detector/image")
@@ -311,16 +417,9 @@ def status():
                 text = f.read().strip()
         except OSError:
             text = "" if det.get("ocr") else None
-    try:
-        with open(path("transcribe_status.json")) as f:
-            tx = json.load(f)
-    except (OSError, ValueError):
-        tx = None
-    tx_on = helper_running("transcribe.py") and bool(tx)
     return jsonify(detector=det, recording=mode == "record" and running(), running=running(),
                    config=load(), system=system(), lecture=lec, snaps=snaps, text=text,
-                   transcription=tx if tx_on else None, transcript=transcript_tail(lec) if lec else [],
-                   speech_ready=os.path.exists(VENV_PYTHON))
+                   transcript=transcript_tail(lec) if lec else [], speech_ready=os.path.exists(VENV_PYTHON))
 
 
 @app.get("/live")
@@ -339,6 +438,17 @@ def live():  # instant draft captions (written ~4 times a second by live_caption
 def start_recording():
     if mode == "record" and running():  # a double click must not end the lecture and start a new one
         return jsonify(message="Already recording.")
+    # The website can name the lecture ({"title", "course_id"}); cloud.py uses that for the lecture it creates.
+    # Starting from this page sends nothing, which also clears a name left over from before.
+    info = request.get_json(silent=True) or {}
+    title, course = str(info.get("title") or "").strip()[:200], info.get("course_id")
+    try:
+        os.remove(path("next_lecture.json"))
+    except OSError:
+        pass
+    if title or course:
+        with open(path("next_lecture.json"), "w") as f:
+            json.dump({"title": title, "course_id": course, "time": time.time()}, f)
     launch("record")
     return jsonify(message="Recording started.")
 
@@ -684,17 +794,14 @@ function loadSaved() {
 }
 
 const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-// Whisper's lines are white. Grey draft lines (instant, less accurate) fill the time Whisper has not reached yet.
+// Saved sentences are white. The sentence being spoken right now is grey until it is finished.
 function renderTranscript() {
     if (!st) return;
     const box = $("transcript"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
-    const tx = st.transcription, covered = tx && tx.lecture === st.lecture ? (tx.covered_until || 0) : 0;
     const row = (start, text, cls) => '<div class="' + cls + '">[' + clock(start).slice(2) + "] " + esc(text) + "</div>";
     let html = st.transcript.map(l => row(l.start, l.text, "")).join("");
-    if (live && live.fresh) {  // draft sentences Whisper has not covered yet (kept a while after Stop too)
-        html += (live.finals || []).filter(l => l.end > covered).map(l => row(l.start, l.text, "draft")).join("");
-        if (live.partial && live.state === "listening") html += row(live.partial_start || live.t || 0, live.partial, "draft");
-    }
+    if (live && live.fresh && live.partial && live.state === "listening")
+        html += row(live.partial_start || live.t || 0, live.partial, "draft");
     box.innerHTML = html || '<div class="dim">' + (st.recording ? "Listening..." : "Appears here while a lecture is recording.") + "</div>";
     if (atEnd) box.scrollTop = box.scrollHeight;
 }
@@ -730,14 +837,7 @@ async function updateStatus() {
             " &nbsp;OCR " + (det.ocr ? span("on", "ok") : span("off", "warn")) +
             (det.errors ? " &nbsp;" + span(det.errors + " frame errors (recording continues)", "warn") : ""),
     ];
-    const tx = st.transcription;
-    lines.push("Transcription: " + (tx ? span(tx.model, "ok") + (tx.rtf != null ? " &nbsp;" + tx.rtf + "x real time" : "") +
-               " &nbsp;audio pieces on disk " + (tx.on_disk ?? "?") + " &nbsp;waiting chunks " + tx.backlog + " &nbsp;" + tx.state +
-                    (tx.errors ? " &nbsp;" + span(tx.errors + " chunk errors: " + tx.last_error, "bad") : "")
-                    : !st.speech_ready ? span("off (faster-whisper not installed - run send_code.cmd)", "warn")
-                    : st.recording ? span("starting...", "warn")
-                    : span("off (starts when you press Start Recording)", "ok")));
-    lines.push("Live captions: " + (live && live.fresh ? span("on", "ok") + (live.rtf != null ? " &nbsp;" + live.rtf + "x real time" : "") + " &nbsp;" + live.state
+    lines.push("Transcription (streaming): " + (live && live.fresh ? span("on", "ok") + (live.rtf != null ? " &nbsp;" + live.rtf + "x real time" : "") + " &nbsp;" + live.state
                : live && live.running && live.state ? span("starting: " + live.state, "warn")
                : !st.speech_ready ? span("off (sherpa-onnx is not installed - run send_code.cmd)", "warn")
                : st.recording ? span("starting...", "warn")
@@ -809,6 +909,6 @@ if __name__ == "__main__":
         print("Stopping Knightscribe (closing the recording files)...", flush=True)
         with lock:
             stop_program()
-        for entry in helpers.values():
+        for entry in list(helpers.values()) + [cloud]:
             if entry[0] and entry[0].poll() is None:
                 os.killpg(entry[0].pid, signal.SIGTERM)

@@ -29,9 +29,8 @@ plug the camera in firmly, keep its cable from being pulled, and use the officia
 |---|---|
 | `knightcribe.cpp` | Capture program (C++/OpenCV). Runs ffmpeg for recording; teaching area, board check, person check (NanoDet), snapshots, cleanup, OCR. |
 | `web.py` | Device control page (Python/Flask). |
-| `transcribe.py` | Live transcription (faster-whisper): turns the 15-second audio chunks into text while the lecture is recording. Started by `web.py`. |
 | `export.py` | Packages a finished lecture (transcript + whiteboard / slide photos with their text) into `lecture.json`, `chunks.jsonl` and `for_llm.txt`, ready to send to an LLM or a database. |
-| `live_captions.py` | Instant draft captions (sherpa-onnx streaming model), about 1-2 s behind the speaker. Started by `web.py`. |
+| `live_captions.py` | Live transcription (sherpa-onnx streaming model), about 1-2 s behind the speaker; saves the lecture's `transcript.jsonl`. Started by `web.py`. |
 | `pi_start.sh` | Runs on the Pi: installs what's missing, downloads the person model, builds, starts. |
 | `send_code.cmd` | Runs on Windows: copies the code to the Pi and runs `pi_start.sh`. |
 | `test_camera.sh` | Runs on the Pi: checks temperature, preview rate, recorded frame rate and CPU use. |
@@ -79,27 +78,24 @@ themes is flipped before OCR so it is read too. `snapshots.csv` records the kind
 
 ## Output
 `lectures/<date_time>/` holds `video_000.mkv, video_001.mkv…` (5-minute pieces), `audio.flac`,
-`snapshots/` and `snapshots.csv` (time of each snapshot on the recording clock), `chunks/` (the
-16 kHz audio pieces used for transcription) and `transcript.jsonl` / `transcript.txt` (the lecture
-text with start/end times on the same clock as the video and snapshots).
+`snapshots/` and `snapshots.csv` (time of each snapshot on the recording clock), `chunks/` (16 kHz
+audio pieces, kept for a later, more accurate transcription off the Pi) and `transcript.jsonl` (the lecture
+text with start/end times on the same clock as the video and snapshots). When the lecture is sent to the
+website, `cloud.py` also joins the video and audio into `recording.mp4`.
 
 ## Live transcription
-Only while a recording is running (and for a short time after it, to finish the last pieces),
-`web.py` starts `transcribe.py` in the Python virtual environment at `~/knightcribe/.venv`
-(`pi_start.sh` installs faster-whisper there). It uses the `base.en` model with int8 on 2 CPU
-threads at low priority; if it can't keep up with real time it switches to `tiny.en`. The text shows
-up on the page about 20-25 seconds behind the speaker (the grey instant draft fills the gap), and every 15-second piece is redone with Whisper,
-so the saved transcript is the accurate one.
+Only while a recording is running (and for a few seconds after it, to save the last sentence), `web.py`
+starts `live_captions.py` in the Python virtual environment at `~/knightcribe/.venv` (`pi_start.sh` installs
+sherpa-onnx there). It listens on UDP port 5005 (ffmpeg sends the microphone there while recording) and runs
+a small streaming model ([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), zipformer 20M, English) that
+shows words about 1-2 seconds after they are spoken. Every finished sentence is added to the lecture's
+`transcript.jsonl`; the sentence being spoken right now shows in grey on the page.
 
-### Instant draft captions
-`live_captions.py` listens on UDP port 5005 (ffmpeg sends the microphone there while recording) and runs
-a small streaming model ([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), zipformer 20M, English) that shows
-words in grey about 1-2 seconds after they are spoken. When Whisper has transcribed the same stretch of
-the lecture, its text replaces the grey draft. The drafts are only for the live display and are never saved. To time the Whisper models on a sample chunk:
-`~/knightcribe/.venv/bin/python transcribe.py --bench lectures/<lecture>/chunks/chunk_00000.wav`
+Whisper no longer runs on the Pi (it was too slow for a Pi 4). A more accurate transcript can be made later
+from `recording.mp4` or the `chunks/` pieces on a faster computer or a cloud server.
 
 ## Export for LLMs and databases
-When a lecture's transcription has finished (or when you press **Export Lecture Data**), `export.py` writes
+When a recording has stopped (or when you press **Export Lecture Data**), `export.py` writes
 `lectures/<lecture>/export/`:
 - `lecture.json`: everything in one document (`knightscribe.lecture.v1`): transcript, every whiteboard / slide
   photo with its text and kind, and one merged timeline.

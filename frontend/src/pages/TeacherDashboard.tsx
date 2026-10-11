@@ -8,6 +8,7 @@ import type {
 } from "../data/mockData";
 import { parseTranscript, generateFromTranscript } from "../api";
 import { createQuizQuestion, generateQuiz, generateSummary, uploadDocument } from "../backend";
+import { startPolling } from "../polling";
 import CourseSettingsPanel from "../components/CourseSettingsPanel";
 
 // ===================== Raspberry Pi (Jack's web.py) =====================
@@ -175,21 +176,17 @@ function PiControlPanel() {
     null
   );
 
-  // Check the Pi every few seconds. The next check waits for the last one,
-  // so a slow Pi never gets a pile of requests.
+  // Check the Pi every few seconds (paused while the tab is hidden). The next
+  // check waits for the last one, so a slow Pi never gets a pile of requests.
   useEffect(() => {
     let cancelled = false;
-    let timer: number | undefined;
-    async function check() {
+    const stop = startPolling(async () => {
       const next = await getPiStatus();
-      if (cancelled) return;
-      setStatus(next);
-      timer = window.setTimeout(check, POLL_MS);
-    }
-    check();
+      if (!cancelled) setStatus(next);
+    }, POLL_MS);
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      stop();
     };
   }, []);
 
@@ -339,6 +336,7 @@ interface TeacherDashboardProps {
   settings: CourseSettings;
   setSettings: (settings: CourseSettings) => void;
   onRefresh: () => void; // reload the lectures from the backend now
+  loading?: boolean; // lectures not loaded yet
 }
 // Accepts watch, youtu.be, live, and embed links and returns an embed URL
 function toEmbedUrl(url: string): string | null {
@@ -355,13 +353,13 @@ function TeacherDashboard({
   settings,
   setSettings,
   onRefresh,
+  loading = false,
 }: TeacherDashboardProps) {
   const [source, setSource] = useState<"camera" | "youtube">("camera");
   const [notice, setNotice] = useState("");
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [transcriptText, setTranscriptText] = useState("");
-  const [isLive, setIsLive] = useState(false);
   const [published, setPublished] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -423,7 +421,7 @@ function TeacherDashboard({
       local: true,
       title: title.trim(),
       videoUrl: embedUrl,
-      isLive,
+      isLive: false, // only a camera recording makes a lecture live
       published,
       completed: false,
       transcript,
@@ -436,12 +434,6 @@ function TeacherDashboard({
     setUrl("");
     setTranscriptText("");
     setBusy(false);
-  }
-
-  function toggleLive(id: number) {
-    setLectures((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, isLive: !l.isLive } : l))
-    );
   }
 
   function togglePublished(id: number) {
@@ -564,7 +556,8 @@ function TeacherDashboard({
 
           <div className="teacher-panel">
             <h3>Your lectures</h3>
-            {count === 0 && <p className="empty-note">No lectures yet.</p>}
+            {loading && <p className="empty-note">Loading lectures...</p>}
+            {!loading && count === 0 && <p className="empty-note">No lectures yet.</p>}
             {lectures.map((lecture) => (
               <div key={lecture.id} className="teacher-row">
                 <div className="teacher-row-info">
@@ -610,7 +603,7 @@ function TeacherDashboard({
                     >
                       {lecture.published ? "Hide" : "Show"}
                     </button>
-                    {lecture.backendId ? (
+                    {lecture.backendId && (
                       <>
                         <button
                           className="teacher-btn ai"
@@ -629,13 +622,6 @@ function TeacherDashboard({
                           {aiBusy?.id === lecture.id && aiBusy.kind === "quiz" ? "Writing..." : "AI quiz"}
                         </button>
                       </>
-                    ) : (
-                      <button
-                        className="teacher-btn"
-                        onClick={() => toggleLive(lecture.id)}
-                      >
-                        {lecture.isLive ? "End live" : "Go live"}
-                      </button>
                     )}
                     <button
                       className="teacher-btn danger"
@@ -711,7 +697,7 @@ function TeacherDashboard({
                     <input
                       value={url}
                       onChange={(e) => setUrl(e.target.value)}
-                      placeholder="Video or livestream link"
+                      placeholder="A YouTube video link"
                     />
                   </label>
                   <label className="field full">
@@ -726,14 +712,6 @@ function TeacherDashboard({
                   </label>
                 </div>
                 <div className="form-checks">
-                  <label className="teacher-check">
-                    <input
-                      type="checkbox"
-                      checked={isLive}
-                      onChange={(e) => setIsLive(e.target.checked)}
-                    />
-                    This is a livestream
-                  </label>
                   <label className="teacher-check">
                     <input
                       type="checkbox"
@@ -850,6 +828,13 @@ function TeacherDashboard({
                     )}
                   </span>
                 </div>
+                {ref.backendId !== undefined && ref.url && (
+                  <div className="teacher-row-actions">
+                    <a className="teacher-btn" href={ref.url} download>
+                      Download
+                    </a>
+                  </div>
+                )}
                 {ref.backendId === undefined && (
                   <div className="teacher-row-actions">
                     <button

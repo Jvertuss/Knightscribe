@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { chapters } from "../data/mockData";
 import { fetchChapters } from "../backend";
+import { startPolling } from "../polling";
 import type {
   Chapter,
   Course,
@@ -23,6 +24,7 @@ interface StudentDashboardProps {
   lectures: Lecture[];
   references: ReferenceMaterial[];
   settings: CourseSettings;
+  loading?: boolean; // lectures not loaded yet
 }
 
 function StudentDashboard({
@@ -30,6 +32,7 @@ function StudentDashboard({
   lectures,
   references,
   settings,
+  loading = false,
 }: StudentDashboardProps) {
   const [selectedLectureId, setSelectedLectureId] = useState<number | null>(null);
   const [seekTo, setSeekTo] = useState<{ seconds: number } | null>(null);
@@ -50,20 +53,21 @@ function StudentDashboard({
   useEffect(() => {
     if (!backendId || selectedId === undefined) return;
     let cancelled = false;
-    let timer: number | undefined;
-    async function load() {
-      try {
-        const list = await fetchChapters(backendId as string, selectedId as number);
-        if (!cancelled) setBoardChapters({ lectureId: selectedId as number, list });
-      } catch (err) {
-        console.warn("loading board snapshots failed:", err);
-      }
-      if (!cancelled && isLive) timer = window.setTimeout(load, 10000);
+    const load = async () => {
+      const list = await fetchChapters(backendId, selectedId);
+      if (!cancelled) setBoardChapters({ lectureId: selectedId, list });
+    };
+    if (!isLive) {
+      // a finished lecture's snapshots don't change: load them once
+      load().catch((err) => console.warn("loading board snapshots failed:", err));
+      return () => {
+        cancelled = true;
+      };
     }
-    load();
+    const stop = startPolling(load, 10000);
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      stop();
     };
   }, [backendId, selectedId, isLive]);
 
@@ -94,6 +98,19 @@ function StudentDashboard({
     ? selectedLecture.isLive || settings.allowRecordings
     : false;
 
+  // Jumping only works on a recording (not the live camera stream)
+  const canSeek =
+    !!selectedLecture &&
+    canWatch &&
+    !selectedLecture.isLive &&
+    selectedLecture.videoUrl !== "" &&
+    !selectedLecture.videoUrl.startsWith("mjpeg:");
+
+  function seek(seconds: number) {
+    setSeekTo({ seconds: Math.floor(seconds) });
+    document.querySelector(".video-player")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   const count = lectures.length;
 
   return (
@@ -109,7 +126,8 @@ function StudentDashboard({
       <SearchPanel courseId={course.id} onOpen={openAt} />
 
       <h2 className="section-label">Lectures</h2>
-      {count === 0 && <p className="empty-note">No lectures are available yet.</p>}
+      {loading && <p className="empty-note">Loading lectures...</p>}
+      {!loading && count === 0 && <p className="empty-note">No lectures are available yet.</p>}
       <div className="lecture-strip">
         {lectures.map((lecture) => (
           <LessonCard
@@ -139,9 +157,10 @@ function StudentDashboard({
                 <ChapterList
                   chapters={lectureChapters}
                   activeId={activeChapterId}
+                  canSeek={canSeek}
                   onSelect={(chapter) => {
                     setActiveChapterId(chapter.id);
-                    setSeekTo({ seconds: chapter.startSeconds });
+                    seek(chapter.startSeconds);
                   }}
                 />
               </>
@@ -157,6 +176,7 @@ function StudentDashboard({
             <TranscriptPanel
               lines={selectedLecture.transcript}
               isLive={selectedLecture.isLive}
+              onSeek={canSeek ? seek : undefined}
             />
           </div>
 
@@ -165,19 +185,13 @@ function StudentDashboard({
               key={`summary-${selectedLecture.id}`}
               points={selectedLecture.liveSummary}
               isLive={selectedLecture.isLive}
-              onSeek={(seconds) => {
-                setActiveChapterId(null);
-                setSeekTo({ seconds });
-              }}
+              onSeek={canSeek ? (seconds) => { setActiveChapterId(null); seek(seconds); } : undefined}
             />
             <ChatPanel
               key={selectedLecture.id}
               lecture={selectedLecture}
               settings={settings}
-              onSeek={(seconds) => {
-                setActiveChapterId(null);
-                setSeekTo({ seconds });
-              }}
+              onSeek={canSeek ? (seconds) => { setActiveChapterId(null); seek(seconds); } : undefined}
             />
             {settings.allowPracticeQuestions && (
               <QuizPanel key={`quiz-${selectedLecture.id}`} lecture={selectedLecture} />

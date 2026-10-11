@@ -26,11 +26,16 @@ function ReferencePanel({ references, courseId, lectureId }: ReferencePanelProps
             <strong>{item.title}</strong>
             <div className="reference-source">{item.source}</div>
           </div>
-          {item.url && (
-            <a href={item.url} target="_blank" rel="noreferrer">
-              Open
-            </a>
-          )}
+          {item.url &&
+            (item.backendId !== undefined ? (
+              <a className="reference-download" href={item.url} download>
+                Download
+              </a>
+            ) : (
+              <a href={item.url} target="_blank" rel="noreferrer">
+                Open
+              </a>
+            ))}
         </div>
       ))}
     </div>

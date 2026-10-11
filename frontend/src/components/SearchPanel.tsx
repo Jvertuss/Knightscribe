@@ -11,6 +11,16 @@ interface SearchPanelProps {
 const clock = (s: number) =>
   `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
+// The searched words in bold inside a result
+function highlight(text: string, query: string) {
+  const words = query.toLowerCase().match(/[a-z0-9]{2,}/g) ?? [];
+  if (words.length === 0) return text;
+  const pattern = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  return text.split(pattern).map((part, i) =>
+    i % 2 === 1 ? <mark key={i}>{part}</mark> : part
+  );
+}
+
 const LABEL: Record<SearchResult["type"], string> = {
   transcript: "Said in lecture",
   whiteboard: "On the board",
@@ -21,6 +31,7 @@ const LABEL: Record<SearchResult["type"], string> = {
 function SearchPanel({ courseId, onOpen }: SearchPanelProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[] | null>(null);
+  const [searched, setSearched] = useState(""); // the query the results are for
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -31,6 +42,7 @@ function SearchPanel({ courseId, onOpen }: SearchPanelProps) {
     setError("");
     try {
       setResults(await searchCourse(courseId, q));
+      setSearched(q);
     } catch {
       setError("Search isn't available right now. Try again in a moment.");
       setResults(null);
@@ -87,7 +99,7 @@ function SearchPanel({ courseId, onOpen }: SearchPanelProps) {
                 <span className="search-meta">
                   {LABEL[r.type]} · {r.title} {where && `· ${where}`}
                 </span>
-                <span className="search-content">{r.content}</span>
+                <span className="search-content">{highlight(r.content, searched)}</span>
                 {canOpen && <span className="search-go">Open at this moment →</span>}
               </button>
             );

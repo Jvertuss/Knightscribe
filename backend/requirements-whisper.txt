@@ -1,0 +1,3 @@
+# Whisper transcription on this server (whisper_transcribe.py). Optional: without it the
+# Pi sends its own streaming transcript. Install with: pip install -r requirements-whisper.txt
+faster-whisper

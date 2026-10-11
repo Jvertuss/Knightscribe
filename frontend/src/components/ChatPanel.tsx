@@ -31,6 +31,9 @@ function SourceChip({
   lecture: Lecture;
   onSeek?: (seconds: number) => void;
 }) {
+  if (source.type === "video") {
+    return <span className="source-chip">Lecture video</span>;
+  }
   if (source.type === "document") {
     return (
       <span className="source-chip">

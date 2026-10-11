@@ -81,10 +81,16 @@ function VideoPlayer({ title, videoUrl, seekTo }: VideoPlayerProps) {
         "*"
       );
     } else if (videoRef.current) {
-      videoRef.current.currentTime = seekTo.seconds;
-      videoRef.current.play().catch(() => {
-        // the browser may block autoplay, the user can press play
-      });
+      const video = videoRef.current;
+      const jump = () => {
+        video.currentTime = seekTo.seconds;
+        video.play().catch(() => {
+          // the browser may block autoplay, the user can press play
+        });
+      };
+      // a jump requested before the video has loaded waits until it knows its length
+      if (video.readyState >= 1) jump();
+      else video.addEventListener("loadedmetadata", jump, { once: true });
     }
     // only react to a new seek request
     // eslint-disable-next-line react-hooks/exhaustive-deps

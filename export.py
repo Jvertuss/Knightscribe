@@ -3,7 +3,7 @@
 #   python3 export.py [lecture_folder_name]      (no name = the newest lecture)
 #
 # It reads what the Pi recorded:
-#   lectures/<lecture>/transcript.jsonl   what was said:        {"start", "end", "text"}   (transcribe.py)
+#   lectures/<lecture>/transcript.jsonl   what was said:        {"start", "end", "text"}   (live_captions.py)
 #   lectures/<lecture>/snapshots.csv      board / slide photos:  seconds,file,kind          (knightcribe.cpp)
 #   lectures/<lecture>/snapshots/*.txt    the text read off every board / slide photo
 # and writes lectures/<lecture>/export/ :

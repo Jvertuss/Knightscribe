@@ -4,6 +4,7 @@ interface CourseSelectProps {
   role: "student" | "teacher";
   courses: Course[];
   lectures: Lecture[];
+  loading?: boolean; // lectures not loaded yet
   onSelect: (courseId: number) => void;
   onBack: () => void;
 }
@@ -12,6 +13,7 @@ function CourseSelect({
   role,
   courses,
   lectures,
+  loading = false,
   onSelect,
   onBack,
 }: CourseSelectProps) {
@@ -69,7 +71,8 @@ function CourseSelect({
               </span>
               <span className="course-tile-title">{course.title}</span>
               <span className="course-tile-meta">
-                {course.instructor} · {n} {n === 1 ? "lecture" : "lectures"}
+                {course.instructor} ·{" "}
+                {loading ? "loading lectures..." : `${n} ${n === 1 ? "lecture" : "lectures"}`}
               </span>
               <span className="course-tile-arrow" aria-hidden="true">
                 →

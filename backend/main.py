@@ -1,4 +1,9 @@
 from auth import router as auth_router
+from recordings import router as recordings_router
+from chat import router as chat_router
+from ai_generate import router as ai_generate_router
+from document_files import router as document_files_router, save_document_file
+from whisper_transcribe import router as whisper_router
 from auth import get_current_user
 from permissions import require_document_permission
 
@@ -6,6 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, Depen
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Literal
+import re
 
 from database import get_connection
 from document_processing import extract_document
@@ -24,13 +30,15 @@ app = FastAPI(
 )
 
 app.include_router(auth_router)
+app.include_router(recordings_router)  # lecture videos stored in the database
+app.include_router(chat_router)  # the student chatbot: POST /courses/{course_id}/ask
+app.include_router(ai_generate_router)  # AI lecture summaries and practice quizzes
+app.include_router(document_files_router)  # download reference material
+app.include_router(whisper_router)  # Whisper transcription of the Pi's audio
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -119,6 +127,16 @@ class LectureStreamUpdate(BaseModel):
         "ended",
         "error"
     ]
+
+    stream_protocol: Literal[
+        "hls",
+        "webrtc",
+        "mjpeg",
+        "other"
+    ] | None = None
+
+    live_stream_url: str | None = None
+
 
 class HardwareTranscriptSegment(BaseModel):
     start: float
@@ -1315,6 +1333,9 @@ async def upload_course_document(
 
             document_id = created_document["id"]
 
+            # keep the original file too, so students can download it
+            save_document_file(cursor, document_id, filename, file.content_type, file_data)
+
             saved_chunks = []
 
             for chunk_index, chunk in enumerate(
@@ -1871,6 +1892,22 @@ def search_course(
         lecture_id=lecture_id,
         max_results=max_results,
     )
+
+    # Every word has to match above. If that finds little, also take passages
+    # with ANY of the words (best matches first), so plain questions work too.
+    words = list(dict.fromkeys(re.findall(r"[A-Za-z0-9]{2,}", q.lower())))
+    if len(results) < max_results and len(words) > 1:
+        seen = {(r["source_type"], r["content"], r["timestamp_seconds"]) for r in results}
+        for extra in search_course_memory(
+            course_id=course_id,
+            query=" or ".join(words),
+            lecture_id=lecture_id,
+            max_results=max_results,
+        ):
+            key = (extra["source_type"], extra["content"], extra["timestamp_seconds"])
+            if key not in seen and len(results) < max_results:
+                seen.add(key)
+                results.append(extra)
 
     return {
         "course_id": course_id,

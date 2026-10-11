@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Gemini model
 MODEL = os.getenv(
     "GEMINI_MODEL",
-    "gemini-3.8-flash"
+    "gemini-3.5-flash-lite"
 )
 
 

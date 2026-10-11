@@ -500,6 +500,8 @@ int main(int argc, char** argv) {
                    std::to_string(CHUNK_SECONDS) + " -reset_timestamps 1 " + dir + "/chunks/chunk_%05d.wav";
             // live draft captions: raw audio over UDP (never blocks ffmpeg, even if nobody listens)
             cmd += " -map 1:a -ac 1 -ar 16000 -c:a pcm_s16le -f s16le \"udp://127.0.0.1:5005?pkt_size=1280\"";
+            // live sound for the website: the same raw audio to web.py, which streams it at /audio
+            cmd += " -map 1:a -ac 1 -ar 16000 -c:a pcm_s16le -f s16le \"udp://127.0.0.1:5006?pkt_size=1280\"";
         }
     }
     // The camera already sends JPEG pictures, so the page's live video just copies them (no decoding, no

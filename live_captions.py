@@ -1,12 +1,13 @@
-# live_captions.py - instant "draft" captions while a lecture is recording (sherpa-onnx streaming).
+# live_captions.py - the lecture transcript, live, while a lecture is recording (sherpa-onnx streaming).
 #
 # While recording, knightcribe.cpp makes ffmpeg also send the microphone as raw 16 kHz audio to
 # UDP port 5005 on this machine. This program feeds that audio to a small streaming speech model
 # (a ~20M-parameter zipformer) that produces words about 1-2 seconds after they are spoken.
-# The drafts are NOT accurate enough to keep: transcribe.py (Whisper) redoes every 15-second piece
-# and the page replaces the grey draft with Whisper's text. This file only feeds the live display.
+# Every finished sentence is added to lectures/<lecture>/transcript.jsonl ({"start", "end", "text"},
+# seconds on the recording clock), which cloud.py sends to the website and export.py packages.
+# (Whisper no longer runs on the Pi: a more accurate transcript can be made later from recording.mp4.)
 #
-# It publishes its state to a small JSON file in RAM (/dev/shm) that web.py serves to the page:
+# It also publishes its state to a small JSON file in RAM (/dev/shm) that web.py serves to the page:
 #   {"updated": <unix time>, "state": ..., "t": <seconds into this recording>, "partial": "words so far",
 #    "finals": [{"start":..,"end":..,"text":..}, ...], "rtf": <processing time / audio time>}
 #
@@ -22,7 +23,8 @@ LIVE = "/dev/shm/knightcribe_live.json" if os.path.isdir("/dev/shm") else os.pat
 MODEL_NAME = "sherpa-onnx-streaming-zipformer-en-20M-2023-02-17"
 MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" + MODEL_NAME + ".tar.bz2"
 MODEL_DIR = os.path.join(HERE, "models", MODEL_NAME)
-KEEP_FINALS = 60                 # how many finished draft sentences to publish
+KEEP_FINALS = 60                 # how many finished sentences to publish
+LECTURES = os.path.join(HERE, "lectures")
 
 
 def publish(**fields):  # swap the file in whole so the page never reads half of it
@@ -65,6 +67,23 @@ def make_recognizer():
         rule3_min_utterance_length=15.0)      # ...and so does talking for 15 s without one
 
 
+def newest_lecture_folder():  # the recording that just started (knightcribe.cpp names folders by start time)
+    try:
+        names = [n for n in os.listdir(LECTURES) if re.fullmatch(r"\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d", n)]
+        return os.path.join(LECTURES, max(names)) if names else None
+    except OSError:
+        return None
+
+
+def save(folder, sentence):  # one finished sentence -> the lecture's transcript (one line, written at once)
+    if folder:
+        try:
+            with open(os.path.join(folder, "transcript.jsonl"), "a") as f:
+                f.write(json.dumps(sentence) + "\n")
+        except OSError:
+            pass
+
+
 def pretty(text):  # the model writes ALL CAPS: make it readable
     text = re.sub(r"\bi\b", "I", text.lower().strip())
     return text[:1].upper() + text[1:]
@@ -94,12 +113,12 @@ def main():
     sock.settimeout(0.5)
 
     stream, samples, finals, utt_start = None, 0, [], None
+    folder = None  # the lecture this recording is saved in
     text = ""  # the words of the sentence being spoken right now
     busy = heard = 0.0       # seconds spent decoding / seconds of audio decoded (for the speed readout)
     last_packet = last_publish = 0.0
     last_shown = None
-    kept, ended_at = [], 0.0  # drafts of the recording that just ended: kept 30 s so the page can show
-                              # them until Whisper has caught up
+    kept, ended_at = [], 0.0  # sentences of the recording that just ended: still shown for 30 s
     publish(state="idle")
     while True:
         try:
@@ -107,9 +126,12 @@ def main():
         except socket.timeout:
             if stream is not None and time.time() - last_packet > 3:  # recording ended
                 if text:  # keep the last unfinished sentence
-                    finals.append({"start": round(utt_start or 0, 2), "end": round(samples / RATE, 2), "text": pretty(text)})
+                    sentence = {"start": round(utt_start or 0, 2), "end": round(samples / RATE, 2), "text": pretty(text)}
+                    finals.append(sentence)
+                    save(folder, sentence)
                 kept, ended_at = finals[-KEEP_FINALS:], time.time()
                 stream, samples, finals, utt_start, busy, heard, text = None, 0, [], None, 0.0, 0.0, ""
+                folder = None
                 last_shown = None
             if time.time() - last_publish > 1:
                 last_publish = time.time()
@@ -122,6 +144,7 @@ def main():
         last_packet = time.time()
         if stream is None:  # first audio of a new recording
             stream, samples, finals, utt_start = recognizer.create_stream(), 0, [], None
+            folder = newest_lecture_folder()
             # half a second of silence first: this model drops the first words if speech starts instantly
             stream.accept_waveform(RATE, np.zeros(RATE // 2, dtype=np.float32))
         began = time.time()
@@ -136,7 +159,9 @@ def main():
             utt_start = max(0.0, t - 0.5)  # the sentence began a moment before the first word showed up
         if recognizer.is_endpoint(stream):
             if text:
-                finals.append({"start": round(utt_start, 2), "end": round(t, 2), "text": pretty(text)})
+                sentence = {"start": round(utt_start, 2), "end": round(t, 2), "text": pretty(text)}
+                finals.append(sentence)
+                save(folder, sentence)
             recognizer.reset(stream)
             text, utt_start = "", None
         busy += time.time() - began

@@ -19,7 +19,7 @@ export interface QuizQuestion {
 // Where an AI answer came from: a reference document, or a moment in a lecture
 export interface ChatSource {
   sourceId: string;
-  type: "document" | "transcript" | "board_event";
+  type: "document" | "transcript" | "board_event" | "video";
   title: string;
   location: string | null; // e.g. "Slide 12"
   lectureId: string | null; // the backend lecture id
@@ -76,7 +76,9 @@ export interface Chapter {
   lectureId: number;
   startSeconds: number; // offset from the start of the video or stream
   title: string;
-  snapshotUrl: string; // photo the classroom camera saved
+  snapshotUrl: string; // the photo to show: the cleaned copy (saturated, for whiteboards)
+  originalUrl?: string; // the unedited photo (whiteboards only)
+  kind?: "board" | "slide";
 }
 
 export interface CourseSettings {
